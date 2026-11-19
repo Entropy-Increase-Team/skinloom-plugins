@@ -1,0 +1,18 @@
+-- +goose Up
+CREATE TABLE IF NOT EXISTS {{prefix}}jobs (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  mode VARCHAR(32) NOT NULL,
+  dry_run TINYINT(1) NOT NULL DEFAULT 0,
+  tables_json TEXT NOT NULL,
+  status VARCHAR(32) NOT NULL,
+  imported_count BIGINT NOT NULL DEFAULT 0,
+  skipped_count BIGINT NOT NULL DEFAULT 0,
+  error_count BIGINT NOT NULL DEFAULT 0,
+  report_json LONGTEXT NOT NULL,
+  created_by BIGINT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  finished_at TIMESTAMP NULL
+);
+
+-- +goose Down
+DROP TABLE IF EXISTS {{prefix}}jobs;

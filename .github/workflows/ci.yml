@@ -1,0 +1,73 @@
+name: Official Plugins CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Lint, Typecheck, Unit Tests & Multi-Platform Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout skinloom-plugins
+        uses: actions/checkout@v4
+        with:
+          path: skinloom-plugins
+
+      - name: Checkout skinloom SDK & CLI toolchain
+        uses: actions/checkout@v4
+        with:
+          repository: Entropy-Increase-Team/skinloom
+          path: skinloom
+
+      - name: Setup Go 1.26.10+
+        uses: actions/setup-go@v5
+        with:
+          go-version: '^1.26.10'
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install & build @skinloom/cli toolchain
+        working-directory: skinloom/web
+        run: |
+          bun install --frozen-lockfile
+          bun run --filter @skinloom/cli build
+
+      - name: Run lint, typecheck, JS/TS tests & build
+        working-directory: skinloom-plugins
+        run: |
+          npm run lint
+          npm run typecheck
+          npm test
+          npm run build
+
+      - name: Run Go vet, unit tests & 5-platform cross-compile check
+        working-directory: skinloom-plugins
+        run: |
+          cat > go.work << 'EOF'
+          go 1.26.10
+          use ./bs-importer
+          replace github.com/Entropy-Increase-Team/skinloom => ../skinloom
+          EOF
+          npm run test:go
+          node ../skinloom/web/packages/cli/bin/skinloom-plugin.mjs build \
+            --dir ./bs-importer \
+            --native \
+            --targets linux/amd64,linux/arm64,windows/amd64,darwin/arm64,darwin/amd64

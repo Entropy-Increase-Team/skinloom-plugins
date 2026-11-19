@@ -1,0 +1,13 @@
+{
+  "title": "Minecraft 正版认证",
+  "subtitle": "绑定你的 Microsoft Minecraft Java 版正版账号。",
+  "verified": "已认证",
+  "unverified": "未认证",
+  "mcName": "正版角色名",
+  "mcUuid": "正版 UUID",
+  "verifyBtn": "使用 Microsoft 账号认证",
+  "refreshBtn": "同步最新正版角色名",
+  "refreshedToast": "已同步最新正版角色名：{name}",
+  "rewardHint": "首次完成正版认证可获得 {score} 积分奖励与「正版认证」徽章。",
+  "notConfigured": "站点管理员尚未配置 Microsoft OAuth 凭据，暂无法发起认证。"
+}

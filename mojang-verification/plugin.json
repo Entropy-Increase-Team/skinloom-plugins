@@ -1,0 +1,121 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "mojang-verification",
+  "kind": "plugin",
+  "runtime": "js",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "Minecraft 正版认证",
+    "en": "Mojang / Microsoft Verification"
+  },
+  "description": {
+    "zh-CN": "通过 Microsoft / Xbox Live OAuth 验证 Minecraft 正版账号，自动处理同名角色冲突、颁发正版徽章并支持积分奖励",
+    "en": "Verify official Minecraft Java Edition ownership via Microsoft / Xbox Live OAuth, reclaim conflicting player names, award verified badges, and grant score rewards"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=0.1.0 <2.0.0"
+  },
+  "server": "server.js",
+  "web": "web/index.js",
+  "permissions": [
+    "storage.docs",
+    "storage.kv",
+    "http.fetch",
+    "users.read",
+    "players.read",
+    "players.write",
+    "score.write",
+    "notify.send",
+    "mail.send"
+  ],
+  "http": {
+    "allow": [
+      "login.live.com",
+      "user.auth.xboxlive.com",
+      "xsts.auth.xboxlive.com",
+      "api.minecraftservices.com",
+      "api.mojang.com",
+      "sessionserver.mojang.com"
+    ]
+  },
+  "hooks": {
+    "filter": ["user.badges"]
+  },
+  "storage": {
+    "collections": {
+      "verifications": {
+        "indexes": {
+          "uuid": "string:unique",
+          "userId": "number",
+          "mcName": "string",
+          "verifiedAt": "time"
+        }
+      }
+    }
+  },
+  "slots": [
+    "user.dashboard.widgets",
+    "user.profile.sections"
+  ],
+  "services": ["importVerifications"],
+  "settings": {
+    "clientId": {
+      "type": "string",
+      "label": {
+        "zh-CN": "Microsoft 应用 Client ID",
+        "en": "Microsoft Application Client ID"
+      },
+      "description": {
+        "zh-CN": "在 Azure 应用注册中申请的客户端 ID，回调地址设为 <site.url>/api/plugins/mojang-verification/callback",
+        "en": "Azure AD / Microsoft app Client ID. Set Redirect URI to <site.url>/api/plugins/mojang-verification/callback."
+      },
+      "default": ""
+    },
+    "clientSecret": {
+      "type": "secret",
+      "label": {
+        "zh-CN": "Microsoft 应用 Client Secret",
+        "en": "Microsoft Application Client Secret"
+      },
+      "default": ""
+    },
+    "conflictPolicy": {
+      "type": "select",
+      "label": {
+        "zh-CN": "同名角色冲突处理策略",
+        "en": "Conflicting Player Name Policy"
+      },
+      "options": ["reclaim", "reject"],
+      "default": "reclaim"
+    },
+    "notifyByEmail": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "回收同名角色时同时发送邮件通知原主人",
+        "en": "Email Previous Owner on Name Reclamation"
+      },
+      "default": true
+    },
+    "rewardScore": {
+      "type": "number",
+      "label": {
+        "zh-CN": "首次正版认证奖励积分",
+        "en": "First-Time Verification Reward Score"
+      },
+      "default": 500
+    },
+    "badgeText": {
+      "type": "string",
+      "label": {
+        "zh-CN": "正版用户徽章文字",
+        "en": "Verified Badge Label"
+      },
+      "default": "正版认证"
+    }
+  }
+}

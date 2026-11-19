@@ -1,0 +1,66 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "bs-importer",
+  "kind": "plugin",
+  "runtime": "native",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "Blessing Skin 扩展数据迁移助手",
+    "en": "Blessing Skin Extension Importer"
+  },
+  "description": {
+    "zh-CN": "按需安装、迁完可卸载的 Tier 2 原生插件：通过直连 BS 数据库或 Export Bridge 补迁 invitation_codes、mojang_verifications、textures_description 第三方插件数据",
+    "en": "On-demand Tier 2 native plugin to import Blessing Skin third-party plugin extension tables (invitation_codes, mojang_verifications, textures_description) via direct DB or Export Bridge; safe to uninstall after migration"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=0.1.0 <2.0.0",
+    "go": ">=1.26.10"
+  },
+  "web": "web/index.js",
+  "native": {
+    "protocolVersion": 1,
+    "executable": "bin/bs-importer",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64",
+      "windows/amd64",
+      "darwin/arm64",
+      "darwin/amd64"
+    ],
+    "httpProxy": true,
+    "database": {
+      "required": true
+    }
+  },
+  "permissions": [
+    "admin.ui",
+    "native.exec",
+    "storage.sql",
+    "http.stream",
+    "users.read",
+    "textures.read"
+  ],
+  "optionalDependencies": {
+    "invitation-codes": "^1.0.0",
+    "mojang-verification": "^1.0.0",
+    "texture-description": "^1.0.0"
+  },
+  "menus": [
+    {
+      "area": "admin",
+      "path": "/bs-importer",
+      "title": {
+        "zh-CN": "BS 插件数据迁移",
+        "en": "BS Extension Importer"
+      },
+      "icon": "database",
+      "order": 90,
+      "role": "superadmin"
+    }
+  ]
+}

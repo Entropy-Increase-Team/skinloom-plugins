@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "typeRoots": ["../skinloom/web/node_modules/@types"],
+    "paths": {
+      "@skinloom/plugin-sdk": ["../skinloom/web/packages/plugin-sdk/src/index.ts"],
+      "@skinloom/plugin-sdk/server": ["../skinloom/web/packages/plugin-sdk/src/server/index.ts"],
+      "@skinloom/plugin-sdk/web": ["../skinloom/web/packages/plugin-sdk/src/web/index.ts"],
+      "@skinloom/plugin-sdk/testing": ["../skinloom/web/packages/plugin-sdk/src/testing/index.ts"],
+      "@skinloom/plugin-sdk/catalog": ["../skinloom/web/packages/plugin-sdk/src/gen/catalog.ts"],
+      "@skinloom/ui": ["../skinloom/web/packages/ui/src/index.ts"],
+      "react": ["../skinloom/web/node_modules/@types/react/index.d.ts"],
+      "react/*": ["../skinloom/web/node_modules/@types/react/*"],
+      "@tanstack/react-query": ["../skinloom/web/node_modules/@tanstack/react-query"],
+      "vitest": ["../skinloom/web/node_modules/vitest"]
+    }
+  }
+}

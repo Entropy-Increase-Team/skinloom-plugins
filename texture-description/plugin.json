@@ -1,0 +1,74 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "texture-description",
+  "kind": "plugin",
+  "runtime": "js",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "材质描述",
+    "en": "Texture Description"
+  },
+  "description": {
+    "zh-CN": "为皮肤与披风添加说明与出处备注，支持上传时填写、详情页展示与作者/管理员在线编辑",
+    "en": "Add descriptions and attribution notes to skins and capes, editable on upload and on texture detail pages"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=0.1.0 <2.0.0"
+  },
+  "server": "server.js",
+  "web": "web/index.js",
+  "permissions": [
+    "storage.docs",
+    "storage.kv",
+    "textures.read"
+  ],
+  "hooks": {
+    "guard": ["texture.upload"],
+    "event": ["texture.uploaded", "texture.deleted"]
+  },
+  "storage": {
+    "collections": {
+      "descriptions": {
+        "indexes": {
+          "textureId": "number",
+          "updatedAt": "time"
+        }
+      }
+    }
+  },
+  "forms": {
+    "texture.upload": [
+      {
+        "name": "description",
+        "type": "textarea",
+        "label": {
+          "zh-CN": "材质描述",
+          "en": "Description"
+        },
+        "placeholder": {
+          "zh-CN": "可选：填写作品简介、作者署名或授权说明",
+          "en": "Optional: describe this texture, author credit, or license"
+        },
+        "required": false,
+        "maxLength": 2000
+      }
+    ]
+  },
+  "slots": ["skinlib.detail.below"],
+  "services": ["importDescriptions"],
+  "settings": {
+    "maxLength": {
+      "type": "number",
+      "label": {
+        "zh-CN": "描述最大字符数",
+        "en": "Maximum Description Length"
+      },
+      "default": 2000
+    }
+  }
+}

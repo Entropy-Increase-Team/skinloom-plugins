@@ -1,0 +1,9 @@
+{
+  "title": "Description",
+  "empty": "No description yet.",
+  "edit": "Edit",
+  "save": "Save",
+  "cancel": "Cancel",
+  "placeholder": "Write a description, author credit, or usage notes...",
+  "savedToast": "Description saved."
+}

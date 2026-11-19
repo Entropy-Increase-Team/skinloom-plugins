@@ -1,0 +1,14 @@
+{
+  "name": "skinloom-plugins",
+  "private": true,
+  "type": "module",
+  "description": "Official plugins and themes for SkinLoom",
+  "scripts": {
+    "lint": "node scripts/run-all.mjs lint",
+    "typecheck": "node scripts/run-all.mjs typecheck",
+    "test": "node scripts/run-all.mjs test",
+    "test:go": "node scripts/run-all.mjs test:go",
+    "build": "node scripts/run-all.mjs build",
+    "pack": "node scripts/run-all.mjs pack"
+  }
+}

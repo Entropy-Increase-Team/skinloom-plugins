@@ -1,0 +1,169 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "invitation-codes",
+  "kind": "plugin",
+  "runtime": "js",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "邀请码注册",
+    "en": "Invitation Codes"
+  },
+  "description": {
+    "zh-CN": "要求用户提供有效邀请码方可注册账号，支持次数限制、过期时间、积分兑换邀请码与管理员批量生成导出",
+    "en": "Require or reward invitation codes during registration, with usage limits, expiration dates, user score redemption, and bulk admin export"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=0.1.0 <2.0.0"
+  },
+  "server": "server.js",
+  "web": "web/index.js",
+  "permissions": [
+    "admin.ui",
+    "storage.docs",
+    "users.read",
+    "score.write"
+  ],
+  "hooks": {
+    "guard": ["auth.register"],
+    "event": ["user.registered"]
+  },
+  "storage": {
+    "collections": {
+      "codes": {
+        "indexes": {
+          "code": "string:unique",
+          "status": "string",
+          "creatorId": "number",
+          "usedBy": "number",
+          "createdAt": "time",
+          "expiresAt": "time"
+        }
+      }
+    }
+  },
+  "forms": {
+    "auth.register": [
+      {
+        "name": "invite_code",
+        "type": "text",
+        "label": {
+          "zh-CN": "邀请码",
+          "en": "Invitation Code"
+        },
+        "placeholder": {
+          "zh-CN": "请输入注册邀请码",
+          "en": "Enter your invitation code"
+        },
+        "required": false,
+        "maxLength": 64
+      }
+    ]
+  },
+  "menus": [
+    {
+      "area": "admin",
+      "path": "/codes",
+      "title": {
+        "zh-CN": "邀请码管理",
+        "en": "Invitation Codes"
+      },
+      "icon": "ticket",
+      "order": 40,
+      "role": "admin"
+    },
+    {
+      "area": "user",
+      "path": "/invites",
+      "title": {
+        "zh-CN": "我的邀请码",
+        "en": "My Invitations"
+      },
+      "icon": "ticket",
+      "order": 50
+    }
+  ],
+  "services": ["importCodes"],
+  "settings": {
+    "requireCode": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "强制要求邀请码注册",
+        "en": "Require Invitation Code for Registration"
+      },
+      "description": {
+        "zh-CN": "关闭后邀请码变为可选项（填了有效邀请码仍可触发积分奖励）",
+        "en": "When disabled, invitation codes are optional while valid codes still grant configured bonus score."
+      },
+      "default": true
+    },
+    "codePrefix": {
+      "type": "string",
+      "label": {
+        "zh-CN": "默认邀请码前缀",
+        "en": "Default Code Prefix"
+      },
+      "default": "SL-"
+    },
+    "defaultMaxUses": {
+      "type": "number",
+      "label": {
+        "zh-CN": "默认单码可用次数",
+        "en": "Default Max Uses per Code"
+      },
+      "default": 1
+    },
+    "defaultExpireDays": {
+      "type": "number",
+      "label": {
+        "zh-CN": "默认有效天数（0 为永久）",
+        "en": "Default Expiry Days (0 = never)"
+      },
+      "default": 0
+    },
+    "allowUserGenerate": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "允许玩家消耗积分生成邀请码",
+        "en": "Allow Players to Generate Codes with Score"
+      },
+      "default": false
+    },
+    "userGenerateCost": {
+      "type": "number",
+      "label": {
+        "zh-CN": "玩家生成邀请码消耗积分",
+        "en": "Score Cost per User-Generated Code"
+      },
+      "default": 200
+    },
+    "userMaxActiveCodes": {
+      "type": "number",
+      "label": {
+        "zh-CN": "玩家同时可持有的有效邀请码上限",
+        "en": "Max Active Codes per User"
+      },
+      "default": 5
+    },
+    "registerBonusScore": {
+      "type": "number",
+      "label": {
+        "zh-CN": "使用邀请码注册额外奖励积分",
+        "en": "Bonus Score for New User Using Code"
+      },
+      "default": 0
+    },
+    "inviterRewardScore": {
+      "type": "number",
+      "label": {
+        "zh-CN": "邀请人获得积分奖励",
+        "en": "Reward Score for Inviter"
+      },
+      "default": 0
+    }
+  }
+}

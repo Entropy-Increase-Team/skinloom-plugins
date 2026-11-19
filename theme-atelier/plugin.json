@@ -1,0 +1,116 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "theme-atelier",
+  "kind": "theme",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "工坊 · Atelier",
+    "en": "Atelier"
+  },
+  "description": {
+    "zh-CN": "官方五层主题示范包：暖陶配色 Token、分栏登录与顶部标签用户中心、主题设置、自由 CSS 与 Level ⑤ 页脚/材质卡片组件覆盖",
+    "en": "Official Level 5 reference theme featuring warm terracotta tokens, split auth & tab user center layouts, theme settings, CSS, and site.footer / texture.card component overrides"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=0.1.0 <2.0.0"
+  },
+  "extends": "default",
+  "web": "web/index.js",
+  "theme": {
+    "colorScheme": "both",
+    "css": "theme.css",
+    "overrides": ["site.footer", "texture.card"],
+    "tokens": {
+      "light": {
+        "background": "oklch(0.985 0.006 75)",
+        "foreground": "oklch(0.205 0.015 45)",
+        "card": "oklch(0.996 0.004 75)",
+        "card-foreground": "oklch(0.205 0.015 45)",
+        "primary": "oklch(0.47 0.14 38)",
+        "primary-foreground": "oklch(0.985 0.004 75)",
+        "highlight": "oklch(0.56 0.14 75)",
+        "highlight-foreground": "oklch(0.985 0.004 75)",
+        "muted": "oklch(0.955 0.009 72)",
+        "muted-foreground": "oklch(0.45 0.016 55)",
+        "border": "oklch(0.89 0.012 70)",
+        "ring": "oklch(0.47 0.14 38)",
+        "radius": "0.75rem"
+      },
+      "dark": {
+        "background": "oklch(0.165 0.012 45)",
+        "foreground": "oklch(0.955 0.008 75)",
+        "card": "oklch(0.205 0.014 45)",
+        "card-foreground": "oklch(0.955 0.008 75)",
+        "primary": "oklch(0.75 0.13 42)",
+        "primary-foreground": "oklch(0.17 0.015 40)",
+        "highlight": "oklch(0.78 0.13 78)",
+        "highlight-foreground": "oklch(0.17 0.015 40)",
+        "muted": "oklch(0.245 0.014 45)",
+        "muted-foreground": "oklch(0.73 0.014 65)",
+        "border": "oklch(0.31 0.016 48)",
+        "ring": "oklch(0.75 0.13 42)"
+      }
+    },
+    "layout": {
+      "auth": "split",
+      "skinlib": "comfortable",
+      "user": "tabs",
+      "texture": "split"
+    },
+    "home": [
+      {
+        "type": "hero",
+        "props": {
+          "layout": "split",
+          "showcase": "popular",
+          "primaryAction": "/skinlib",
+          "secondaryAction": "/auth/register"
+        }
+      },
+      {
+        "type": "popular-textures",
+        "props": {
+          "limit": 8
+        }
+      },
+      {
+        "type": "stats"
+      },
+      {
+        "type": "launcher-guide"
+      }
+    ],
+    "settings": {
+      "accentColor": {
+        "type": "color",
+        "label": {
+          "zh-CN": "工坊主色",
+          "en": "Atelier Accent Color"
+        },
+        "token": "primary"
+      },
+      "cardStyle": {
+        "type": "choice",
+        "label": {
+          "zh-CN": "卡片风格",
+          "en": "Card Style"
+        },
+        "options": ["editorial", "minimal"],
+        "default": "editorial"
+      },
+      "footerTagline": {
+        "type": "text",
+        "label": {
+          "zh-CN": "页脚标语",
+          "en": "Footer Tagline"
+        },
+        "default": "Crafted with Atelier Theme for SkinLoom"
+      }
+    }
+  }
+}

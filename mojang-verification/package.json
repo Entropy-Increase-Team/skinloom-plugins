@@ -1,0 +1,7 @@
+{
+  "name": "mojang-verification",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Official SkinLoom Mojang / Microsoft Verification plugin (Tier 1 JS/WASM)"
+}

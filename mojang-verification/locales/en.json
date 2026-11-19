@@ -1,0 +1,13 @@
+{
+  "title": "Minecraft Verification",
+  "subtitle": "Link your official Microsoft Minecraft Java Edition account.",
+  "verified": "Verified",
+  "unverified": "Not Verified",
+  "mcName": "Minecraft Username",
+  "mcUuid": "Official UUID",
+  "verifyBtn": "Verify with Microsoft",
+  "refreshBtn": "Sync Latest Username",
+  "refreshedToast": "Synced Minecraft username: {name}",
+  "rewardHint": "Complete first-time verification to receive {score} bonus score and the verified badge.",
+  "notConfigured": "Microsoft OAuth client credentials have not been configured by the site administrator yet."
+}

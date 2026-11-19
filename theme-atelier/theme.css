@@ -1,0 +1,29 @@
+/* Atelier Level 4 Stylesheet — unlayered to override host utilities cleanly without !important */
+
+html[data-sl-theme="theme-atelier"] .sl-header {
+  backdrop-filter: blur(10px);
+  border-bottom-color: color-mix(in oklab, var(--primary) 16%, var(--border));
+}
+
+html[data-sl-theme="theme-atelier"][data-sl-setting-cardStyle="editorial"] .sl-texture-card,
+html[data-sl-theme="theme-atelier"][data-sl-setting-cardStyle="editorial"] .sl-player-card {
+  border-color: color-mix(in oklab, var(--primary) 22%, var(--border));
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+html[data-sl-theme="theme-atelier"][data-sl-setting-cardStyle="editorial"] .sl-texture-card:hover,
+html[data-sl-theme="theme-atelier"][data-sl-setting-cardStyle="editorial"] .sl-player-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in oklab, var(--primary) 50%, var(--border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-sl-theme="theme-atelier"] .sl-texture-card,
+  html[data-sl-theme="theme-atelier"] .sl-player-card {
+    transition: none;
+  }
+  html[data-sl-theme="theme-atelier"] .sl-texture-card:hover,
+  html[data-sl-theme="theme-atelier"] .sl-player-card:hover {
+    transform: none;
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+**/dist/
+*.slp
+**/*.slp
+*.key.pem
+**/*.key.pem
+artifacts.json
+**/artifacts.json
+go.work
+go.work.sum
+.DS_Store
+Thumbs.db
