@@ -29,10 +29,11 @@ jobs:
           repository: Entropy-Increase-Team/skinloom
           path: skinloom
 
-      - name: Setup Go 1.26.10+
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '^1.26.10'
+          go-version-file: skinloom-plugins/bs-importer/go.mod
+          cache-dependency-path: skinloom-plugins/bs-importer/go.sum
 
       - name: Setup Node.js 24
         uses: actions/setup-node@v4
@@ -61,11 +62,6 @@ jobs:
       - name: Run Go vet, unit tests & 5-platform cross-compile check
         working-directory: skinloom-plugins
         run: |
-          cat > go.work << 'EOF'
-          go 1.26.10
-          use ./bs-importer
-          replace github.com/Entropy-Increase-Team/skinloom => ../skinloom
-          EOF
           npm run test:go
           node ../skinloom/web/packages/cli/bin/skinloom-plugin.mjs build \
             --dir ./bs-importer \
