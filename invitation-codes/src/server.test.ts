@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 import plugin from './server.js'
 
 const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../plugin.json'), 'utf8'))
+const locales = {
+  'zh-CN': JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/zh-CN.json'), 'utf8')),
+  en: JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/en.json'), 'utf8')),
+}
 
 const ADMIN = { id: 1, email: 'admin@example.com', nickname: 'Admin', role: 'admin' as const }
 const USER = { id: 2, email: 'player@example.com', nickname: 'Player', role: 'user' as const }
@@ -13,6 +17,7 @@ describe('invitation-codes plugin', () => {
   it('enforces invitation code on registration, consumes it, and awards inviter/invitee bonus', async () => {
     const host = createTestHost({
       manifest,
+      locales,
       settings: {
         requireCode: true,
         codePrefix: 'VIP-',
@@ -79,6 +84,7 @@ describe('invitation-codes plugin', () => {
   it('supports user score redemption, revoke, delete, and idempotent importCodes service', async () => {
     const host = createTestHost({
       manifest,
+      locales,
       settings: {
         allowUserGenerate: true,
         userGenerateCost: 200,
@@ -94,9 +100,13 @@ describe('invitation-codes plugin', () => {
     expect(u1.status).toBe(201)
     expect(await host.ctx.score.balance(2)).toBe(100)
 
-    // Second attempt blocked by userMaxActiveCodes = 1
-    const u2 = await host.request('POST', '/me/codes/generate', { user: USER, body: {} })
-    expect(u2.status).toBe(422)
+    // Second attempt blocked by userMaxActiveCodes = 1 (localized in zh-CN & en)
+    const u2Zh = await host.request('POST', '/me/codes/generate', { user: USER, body: {}, locale: 'zh-CN' })
+    expect(u2Zh.status).toBe(422)
+    expect((u2Zh.body as { detail: string }).detail).toContain('有效邀请码')
+    const u2En = await host.request('POST', '/me/codes/generate', { user: USER, body: {}, locale: 'en' })
+    expect(u2En.status).toBe(422)
+    expect((u2En.body as { detail: string }).detail).toContain('active invitation codes')
 
     // Import from BS idempotently
     const firstImport = await host.service('importCodes', [

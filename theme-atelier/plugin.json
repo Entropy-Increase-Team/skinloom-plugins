@@ -2,7 +2,7 @@
   "$schema": "https://skinloom.cn/schema/plugin.v1.json",
   "id": "theme-atelier",
   "kind": "theme",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": {
     "zh-CN": "工坊 · Atelier",
     "en": "Atelier"
@@ -106,10 +106,14 @@
       "footerTagline": {
         "type": "text",
         "label": {
-          "zh-CN": "页脚标语",
-          "en": "Footer Tagline"
+          "zh-CN": "页脚标语（留空自动跟随站点语言）",
+          "en": "Footer Tagline (blank = follow site locale)"
         },
-        "default": "Crafted with Atelier Theme for SkinLoom"
+        "description": {
+          "zh-CN": "留空时自动按访客语言显示主题默认标语；填写后将固定显示自定义标语",
+          "en": "Leave blank to display the localized theme tagline automatically; enter custom text to override"
+        },
+        "default": ""
       }
     }
   }

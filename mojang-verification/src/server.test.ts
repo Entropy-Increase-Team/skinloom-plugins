@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 import plugin from './server.js'
 
 const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../plugin.json'), 'utf8'))
+const locales = {
+  'zh-CN': JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/zh-CN.json'), 'utf8')),
+  en: JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/en.json'), 'utf8')),
+}
 
 const ALICE = { id: 10, email: 'alice@example.com', nickname: 'Alice', role: 'user' as const }
 const SQUATTER = { id: 20, email: 'squatter@example.com', nickname: 'Squatter', role: 'user' as const }
@@ -13,6 +17,7 @@ describe('mojang-verification plugin', () => {
   it('completes Microsoft -> XBL -> XSTS -> Minecraft OAuth, reclaims conflicting name, awards badge & score, and syncs renames', async () => {
     const host = createTestHost({
       manifest,
+      locales,
       site: { url: 'https://skins.example.com' },
       settings: {
         clientId: 'ms-client-id',
@@ -20,12 +25,12 @@ describe('mojang-verification plugin', () => {
         conflictPolicy: 'reclaim',
         notifyByEmail: true,
         rewardScore: 500,
-        badgeText: '正版认证',
+        badgeText: '',
       },
       fixtures: {
         users: [
-          { ...ALICE, score: 100 },
-          { ...SQUATTER, score: 200 },
+          { ...ALICE, score: 100, locale: 'zh-CN' },
+          { ...SQUATTER, score: 200, locale: 'zh-CN' },
         ],
         players: [{ id: 99, userId: SQUATTER.id, name: 'Notch', uuid: '00000000000000000000000000000099' }],
       },
@@ -58,24 +63,40 @@ describe('mojang-verification plugin', () => {
     expect(authUrl).toContain('login.live.com/oauth20_authorize.srf')
     expect(state.length).toBeGreaterThan(10)
 
-    // Step 2: Callback verifies account, reclaims "Notch" from Squatter, awards 500 score
+    // Cross-user state forgery must fail WITHOUT deleting Alice's valid OAuth state
+    const forged = await host.request('GET', '/callback', {
+      user: SQUATTER,
+      locale: 'zh-CN',
+      query: { code: 'oauth-code-xyz', state },
+    })
+    expect(forged.status).toBe(422)
+    expect((forged.body as { detail: string }).detail).toContain('状态无效或已过期')
+
+    // Step 2: Callback verifies account, reclaims "Notch" from Squatter (localized to Squatter's zh-CN), awards 500 score
     const cb = await host.request('GET', '/callback', {
       user: ALICE,
+      locale: 'zh-CN',
       query: { code: 'oauth-code-xyz', state },
     })
     expect(cb.status).toBe(302)
     expect(await host.ctx.score.balance(ALICE.id)).toBe(600)
     expect(
-      host.notifications.some((n) => Array.isArray(n.target) && n.target.includes(SQUATTER.id)),
+      host.notifications.some(
+        (n) => Array.isArray(n.target) && n.target.includes(SQUATTER.id) && n.title.includes('回收'),
+      ),
     ).toBe(true)
-    expect(host.sentMails.some((m) => m.to === SQUATTER.email)).toBe(true)
+    expect(host.sentMails.some((m) => m.to === SQUATTER.email && String(m.subject ?? '').includes('回收'))).toBe(true)
 
     const alicePlayers = await host.ctx.players.list(ALICE.id)
     expect(alicePlayers.some((p) => p.name === 'Notch')).toBe(true)
 
-    // Step 3: user.badges filter grants verified badge to Alice but not Squatter
+    // Step 3: /me/status localizes blank badgeText to request locale, and user.badges filter grants verified badge
+    const statusZh = await host.request('GET', '/me/status', { user: ALICE, locale: 'zh-CN' })
+    expect((statusZh.body as { badgeText: string }).badgeText).toBe('正版认证')
+    const statusEn = await host.request('GET', '/me/status', { user: ALICE, locale: 'en' })
+    expect((statusEn.body as { badgeText: string }).badgeText).toBe('Verified')
     const aliceBadges = await host.filter('user.badges', [], { userId: ALICE.id, role: 'user' })
-    expect(aliceBadges).toEqual([{ text: '正版认证', color: 'success', icon: 'badge-check' }])
+    expect(aliceBadges).toEqual([{ text: 'Verified', color: 'success', icon: 'badge-check' }])
     const squatterBadges = await host.filter('user.badges', [], { userId: SQUATTER.id, role: 'user' })
     expect(squatterBadges).toEqual([])
 

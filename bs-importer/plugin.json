@@ -3,7 +3,7 @@
   "id": "bs-importer",
   "kind": "plugin",
   "runtime": "native",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": {
     "zh-CN": "Blessing Skin 扩展数据迁移助手",
     "en": "Blessing Skin Extension Importer"

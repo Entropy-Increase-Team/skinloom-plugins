@@ -424,6 +424,9 @@ func openBridgeSource(cfg SourceConfig) (*bridgeSource, error) {
 				if len(via) >= 3 {
 					return errors.New("too many redirects")
 				}
+				if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
+					return errors.New("refusing redirect to unsupported URL scheme")
+				}
 				if req.URL.Scheme == "http" && !isPrivateOrLoopbackHost(req.URL.Hostname()) {
 					return errors.New("refusing redirect to insecure HTTP endpoint")
 				}
@@ -564,6 +567,8 @@ func (b *bridgeSource) ReadTextureDescriptions(ctx context.Context) ([]TextureDe
 
 // --- Batch Service Dispatcher ---
 
+type translateFunc func(key string, params map[string]any, zhFallback, enFallback string) string
+
 func dispatchBatches[T any](
 	ctx context.Context,
 	pctx *plugin.Context,
@@ -572,6 +577,7 @@ func dispatchBatches[T any](
 	items []T,
 	dryRun bool,
 	emit func(msg string),
+	tr translateFunc,
 ) TableImportReport {
 	rep := TableImportReport{
 		TargetPlugin: targetPlugin,
@@ -582,7 +588,14 @@ func dispatchBatches[T any](
 	}
 	if dryRun {
 		rep.Skipped = len(items)
-		emit(fmt.Sprintf("[dry-run] %s: read %d row(s) ready for %s.%s", targetPlugin, len(items), targetPlugin, serviceName))
+		emit(tr("logDryRunTable", map[string]any{
+			"plugin":  targetPlugin,
+			"count":   len(items),
+			"service": serviceName,
+		},
+			fmt.Sprintf("[模拟演练] %s：已读取 %d 条记录，等待调用 %s.%s", targetPlugin, len(items), targetPlugin, serviceName),
+			fmt.Sprintf("[dry-run] %s: read %d row(s) ready for %s.%s", targetPlugin, len(items), targetPlugin, serviceName),
+		))
 		return rep
 	}
 	for start := 0; start < len(items); start += serviceBatchSize {
@@ -591,7 +604,14 @@ func dispatchBatches[T any](
 		raw, err := pctx.Services.Call(ctx, targetPlugin, serviceName, batch)
 		if err != nil {
 			rep.Errors = append(rep.Errors, fmt.Sprintf("%s.%s (batch %d-%d): %v", targetPlugin, serviceName, start, end, err))
-			emit(fmt.Sprintf("[error] %s.%s failed: %v", targetPlugin, serviceName, err))
+			emit(tr("logTableError", map[string]any{
+				"plugin":  targetPlugin,
+				"service": serviceName,
+				"error":   err.Error(),
+			},
+				fmt.Sprintf("[错误] %s.%s 调用失败：%v", targetPlugin, serviceName, err),
+				fmt.Sprintf("[error] %s.%s failed: %v", targetPlugin, serviceName, err),
+			))
 			return rep
 		}
 		var res serviceImportResult
@@ -602,7 +622,16 @@ func dispatchBatches[T any](
 		rep.Imported += res.Imported
 		rep.Skipped += res.Skipped
 		rep.Errors = append(rep.Errors, res.Errors...)
-		emit(fmt.Sprintf("[progress] %s: %d/%d processed (imported=%d, skipped=%d)", targetPlugin, end, len(items), rep.Imported, rep.Skipped))
+		emit(tr("logTableProgress", map[string]any{
+			"plugin":   targetPlugin,
+			"done":     end,
+			"total":    len(items),
+			"imported": rep.Imported,
+			"skipped":  rep.Skipped,
+		},
+			fmt.Sprintf("[进度] %s：已处理 %d/%d（成功 %d，跳过 %d）", targetPlugin, end, len(items), rep.Imported, rep.Skipped),
+			fmt.Sprintf("[progress] %s: %d/%d processed (imported=%d, skipped=%d)", targetPlugin, end, len(items), rep.Imported, rep.Skipped),
+		))
 	}
 	return rep
 }

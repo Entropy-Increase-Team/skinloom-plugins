@@ -5,7 +5,7 @@ go 1.26.10
 toolchain go1.27.4
 
 require (
-	github.com/Entropy-Increase-Team/skinloom v1.1.0-rc.4.0.20261119091117-2fe0c10dd5fc
+	github.com/Entropy-Increase-Team/skinloom v1.1.0
 	modernc.org/sqlite v1.61.0
 )
 

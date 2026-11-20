@@ -3,7 +3,7 @@
   "id": "invitation-codes",
   "kind": "plugin",
   "runtime": "js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": {
     "zh-CN": "邀请码注册",
     "en": "Invitation Codes"

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -132,6 +133,56 @@ func (p *BSImporterPlugin) streamFor(jobID int64, create bool) *jobStream {
 	return st
 }
 
+func isZhLocale(locale string) bool {
+	l := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(locale, "_", "-")))
+	return l == "" || l == "zh" || strings.HasPrefix(l, "zh-")
+}
+
+func (p *BSImporterPlugin) tr(reqCtx context.Context, locale, key string, params map[string]any, zhFallback, enFallback string) string {
+	if p != nil && p.ctx != nil && p.ctx.I18n != nil {
+		if out, err := p.ctx.I18n.T(reqCtx, key, params, locale); err == nil && out != "" && out != key {
+			return out
+		}
+	}
+	if isZhLocale(locale) {
+		return zhFallback
+	}
+	return enFallback
+}
+
+func (p *BSImporterPlugin) localizeMode(reqCtx context.Context, locale, mode string) string {
+	switch mode {
+	case "db":
+		return p.tr(reqCtx, locale, "modeDbShort", nil, "直连数据库", "Direct DB")
+	case "bridge":
+		return p.tr(reqCtx, locale, "modeBridgeShort", nil, "导出桥接", "Export Bridge")
+	default:
+		return mode
+	}
+}
+
+func (p *BSImporterPlugin) localizeStatus(reqCtx context.Context, locale, status string) string {
+	switch status {
+	case "completed":
+		return p.tr(reqCtx, locale, "statusCompleted", nil, "已完成", "Completed")
+	case "completed_with_errors":
+		return p.tr(reqCtx, locale, "statusCompletedWithErrors", nil, "部分失败", "Completed with errors")
+	case "running":
+		return p.tr(reqCtx, locale, "statusRunning", nil, "执行中", "Running")
+	case "failed":
+		return p.tr(reqCtx, locale, "statusFailed", nil, "失败", "Failed")
+	default:
+		return status
+	}
+}
+
+func (p *BSImporterPlugin) localizeBool(reqCtx context.Context, locale string, val bool) string {
+	if val {
+		return p.tr(reqCtx, locale, "yes", nil, "是", "Yes")
+	}
+	return p.tr(reqCtx, locale, "no", nil, "否", "No")
+}
+
 func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	p.ctx = ctx
 	db := ctx.DB()
@@ -146,7 +197,9 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	ctx.HTTP.Post("/admin/test", func(reqCtx context.Context, req *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
 		var cfg SourceConfig
 		if err := req.DecodeJSON(&cfg); err != nil {
-			return nil, plugin.Reject("Invalid JSON payload: " + err.Error())
+			msg := p.tr(reqCtx, req.Locale, "errInvalidJson", map[string]any{"error": err.Error()},
+				"请求体 JSON 格式无效："+err.Error(), "Invalid JSON payload: "+err.Error())
+			return nil, plugin.Reject(msg)
 		}
 		src, err := openSource(reqCtx, cfg)
 		if err != nil {
@@ -164,7 +217,9 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	ctx.HTTP.Post("/admin/run", func(reqCtx context.Context, req *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
 		var cfg SourceConfig
 		if err := req.DecodeJSON(&cfg); err != nil {
-			return nil, plugin.Reject("Invalid JSON payload: " + err.Error())
+			msg := p.tr(reqCtx, req.Locale, "errInvalidJson", map[string]any{"error": err.Error()},
+				"请求体 JSON 格式无效："+err.Error(), "Invalid JSON payload: "+err.Error())
+			return nil, plugin.Reject(msg)
 		}
 		tables, err := normalizeRequestedTables(cfg.Tables)
 		if err != nil {
@@ -189,10 +244,23 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 		stream := p.streamFor(jobID, true)
 		defer stream.close()
 
+		locale := req.Locale
+		translate := func(key string, params map[string]any, zhFallback, enFallback string) string {
+			return p.tr(reqCtx, locale, key, params, zhFallback, enFallback)
+		}
 		emit := func(msg string) {
 			stream.publish("progress", msg)
 		}
-		emit(fmt.Sprintf("Started job #%d (mode=%s, dryRun=%v)", jobID, cfg.Mode, cfg.DryRun))
+		modeText := p.localizeMode(reqCtx, locale, cfg.Mode)
+		dryRunText := p.localizeBool(reqCtx, locale, cfg.DryRun)
+		emit(translate("logJobStarted", map[string]any{
+			"jobId":  jobID,
+			"mode":   modeText,
+			"dryRun": dryRunText,
+		},
+			fmt.Sprintf("已启动任务 #%d（模式：%s，模拟演练：%s）", jobID, modeText, dryRunText),
+			fmt.Sprintf("Started job #%d (mode=%s, dryRun=%s)", jobID, modeText, dryRunText),
+		))
 
 		report := ImportReport{
 			DryRun: cfg.DryRun,
@@ -210,7 +278,7 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 						Errors:       []string{rErr.Error()},
 					}
 				} else {
-					tblRep = dispatchBatches(reqCtx, ctx, "invitation-codes", "importCodes", rows, cfg.DryRun, emit)
+					tblRep = dispatchBatches(reqCtx, ctx, "invitation-codes", "importCodes", rows, cfg.DryRun, emit, translate)
 					tblRep.Table = tbl
 				}
 			case TableMojangVerification:
@@ -222,7 +290,7 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 						Errors:       []string{rErr.Error()},
 					}
 				} else {
-					tblRep = dispatchBatches(reqCtx, ctx, "mojang-verification", "importVerifications", rows, cfg.DryRun, emit)
+					tblRep = dispatchBatches(reqCtx, ctx, "mojang-verification", "importVerifications", rows, cfg.DryRun, emit, translate)
 					tblRep.Table = tbl
 				}
 			case TableTextureDescription:
@@ -234,7 +302,7 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 						Errors:       []string{rErr.Error()},
 					}
 				} else {
-					tblRep = dispatchBatches(reqCtx, ctx, "texture-description", "importDescriptions", rows, cfg.DryRun, emit)
+					tblRep = dispatchBatches(reqCtx, ctx, "texture-description", "importDescriptions", rows, cfg.DryRun, emit, translate)
 					tblRep.Table = tbl
 				}
 			}
@@ -252,7 +320,15 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 		if err := p.finishJob(reqCtx, jobID, status, &report); err != nil {
 			return nil, err
 		}
-		stream.publish("done", fmt.Sprintf("Finished job #%d: imported=%d skipped=%d errors=%d", jobID, report.TotalImported, report.TotalSkipped, report.TotalErrors))
+		stream.publish("done", translate("logJobFinished", map[string]any{
+			"jobId":    jobID,
+			"imported": report.TotalImported,
+			"skipped":  report.TotalSkipped,
+			"errors":   report.TotalErrors,
+		},
+			fmt.Sprintf("任务 #%d 已结束：成功 %d，跳过 %d，错误 %d", jobID, report.TotalImported, report.TotalSkipped, report.TotalErrors),
+			fmt.Sprintf("Finished job #%d: imported=%d skipped=%d errors=%d", jobID, report.TotalImported, report.TotalSkipped, report.TotalErrors),
+		))
 
 		_ = ctx.Audit.Record(reqCtx, "bs_importer.run", "job", strconv.FormatInt(jobID, 10), map[string]any{
 			"mode":     cfg.Mode,
@@ -283,11 +359,13 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	ctx.HTTP.Get("/admin/jobs/:id", func(reqCtx context.Context, req *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
 		jobID, err := strconv.ParseInt(req.Params["id"], 10, 64)
 		if err != nil || jobID <= 0 {
-			return nil, plugin.Reject("invalid job id")
+			return nil, plugin.Reject(p.tr(reqCtx, req.Locale, "errInvalidJobId", nil, "无效的任务 ID。", "Invalid job ID."))
 		}
 		job, err := p.getJob(reqCtx, jobID)
 		if err != nil {
-			return plugin.JSON(http.StatusNotFound, map[string]any{"detail": "job not found"}), nil
+			return plugin.JSON(http.StatusNotFound, map[string]any{
+				"detail": p.tr(reqCtx, req.Locale, "errJobNotFound", nil, "未找到对应的迁移任务。", "Migration job not found."),
+			}), nil
 		}
 		return plugin.JSON(http.StatusOK, job), nil
 	}, plugin.WithAuth(plugin.AuthSuperadmin))
@@ -295,9 +373,10 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	// 5. Real-time Server-Sent Events (SSE) progress stream via Tier 2 local stream proxy.
 	ctx.HTTP.StreamFunc(http.MethodGet, "/admin/jobs/:id/stream", func(w http.ResponseWriter, r *http.Request) {
 		params := plugin.StreamParams(r)
+		locale := plugin.ProxyLocale(r)
 		jobID, err := strconv.ParseInt(params["id"], 10, 64)
 		if err != nil || jobID <= 0 {
-			http.Error(w, "invalid job id", http.StatusBadRequest)
+			http.Error(w, p.tr(r.Context(), locale, "errInvalidJobId", nil, "无效的任务 ID。", "Invalid job ID."), http.StatusBadRequest)
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -309,13 +388,24 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 		if st == nil {
 			job, qErr := p.getJob(r.Context(), jobID)
 			if qErr != nil {
-				http.Error(w, "job not found", http.StatusNotFound)
+				http.Error(w, p.tr(r.Context(), locale, "errJobNotFound", nil, "未找到对应的迁移任务。", "Migration job not found."), http.StatusNotFound)
 				return
 			}
+			statusText := p.localizeStatus(r.Context(), locale, job.Status)
+			msg := p.tr(r.Context(), locale, "logJobStatus", map[string]any{
+				"jobId":    job.ID,
+				"status":   statusText,
+				"imported": job.ImportedCount,
+				"skipped":  job.SkippedCount,
+				"errors":   job.ErrorCount,
+			},
+				fmt.Sprintf("任务 #%d 状态：%s（成功 %d，跳过 %d，错误 %d）", job.ID, statusText, job.ImportedCount, job.SkippedCount, job.ErrorCount),
+				fmt.Sprintf("Job #%d status: %s (imported=%d, skipped=%d, errors=%d)", job.ID, statusText, job.ImportedCount, job.SkippedCount, job.ErrorCount),
+			)
 			payload, _ := json.Marshal(map[string]any{
 				"event":  "done",
 				"status": job.Status,
-				"msg":    fmt.Sprintf("Job #%d status: %s (imported=%d, skipped=%d, errors=%d)", job.ID, job.Status, job.ImportedCount, job.SkippedCount, job.ErrorCount),
+				"msg":    msg,
 			})
 			_, _ = fmt.Fprintf(w, "event: done\ndata: %s\n\n", string(payload))
 			if flusher != nil {

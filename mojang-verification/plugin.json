@@ -3,7 +3,7 @@
   "id": "mojang-verification",
   "kind": "plugin",
   "runtime": "js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": {
     "zh-CN": "Minecraft 正版认证",
     "en": "Mojang / Microsoft Verification"
@@ -90,6 +90,10 @@
         "zh-CN": "同名角色冲突处理策略",
         "en": "Conflicting Player Name Policy"
       },
+      "description": {
+        "zh-CN": "reclaim：自动回收其他未认证用户的同名角色并退还创建积分；reject：当同名角色已被他人占用时拒绝本次认证",
+        "en": "reclaim: reclaim the conflicting unverified player name and refund its creation score; reject: fail verification if another account already holds that name"
+      },
       "options": ["reclaim", "reject"],
       "default": "reclaim"
     },
@@ -112,10 +116,14 @@
     "badgeText": {
       "type": "string",
       "label": {
-        "zh-CN": "正版用户徽章文字",
-        "en": "Verified Badge Label"
+        "zh-CN": "自定义正版用户徽章文字（留空自动跟随站点语言）",
+        "en": "Custom Verified Badge Label (blank = follow site locale)"
       },
-      "default": "正版认证"
+      "description": {
+        "zh-CN": "留空时自动随访客界面语言显示「正版认证」或「Verified」；填写后将固定显示自定义文案",
+        "en": "Leave blank to automatically follow the visitor's UI language (Verified / 正版认证); enter custom text to override"
+      },
+      "default": ""
     }
   }
 }

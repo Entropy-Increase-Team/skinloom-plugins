@@ -5,5 +5,11 @@
   "save": "保存",
   "cancel": "取消",
   "placeholder": "填写作品简介、作者署名或使用说明……",
-  "savedToast": "材质描述已保存。"
+  "savedToast": "材质描述已保存。",
+  "errTooLong": "材质描述长度不能超过 {max} 个字符。",
+  "errInvalidId": "无效的材质 ID。",
+  "errNotFound": "未找到对应的材质。",
+  "errPrivate": "该材质为私密材质，无权访问。",
+  "errAuthRequired": "请先登录后再编辑材质描述。",
+  "errForbiddenEdit": "仅材质上传者或管理员可编辑此材质描述。"
 }

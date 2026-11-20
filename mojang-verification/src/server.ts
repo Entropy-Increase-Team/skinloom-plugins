@@ -47,14 +47,19 @@ async function readSettings(ctx: PluginContext): Promise<MojangSettings> {
     conflictPolicy: all.conflictPolicy === 'reject' ? 'reject' : 'reclaim',
     notifyByEmail: all.notifyByEmail !== false,
     rewardScore: Number.isFinite(reward) ? Math.max(0, Math.min(1_000_000, Math.trunc(reward))) : 500,
-    badgeText: typeof all.badgeText === 'string' && all.badgeText.trim() ? all.badgeText.trim().slice(0, 32) : '正版认证',
+    badgeText: typeof all.badgeText === 'string' ? all.badgeText.trim().slice(0, 32) : '',
   }
 }
 
-async function buildRedirectURI(ctx: PluginContext): Promise<string> {
+async function resolveBadgeText(ctx: PluginContext, cfg: MojangSettings, locale?: string): Promise<string> {
+  if (cfg.badgeText) return cfg.badgeText
+  return await ctx.t('verifiedBadge', null, locale)
+}
+
+async function buildRedirectURI(ctx: PluginContext, locale?: string): Promise<string> {
   const siteUrl = (await ctx.site.url()).trim().replace(/\/+$/, '')
   if (!siteUrl) {
-    throw new Error('site.url must be configured before using Microsoft verification')
+    throw new Error(await ctx.t('errSiteUrlRequired', null, locale))
   }
   return `${siteUrl}/api/plugins/mojang-verification/callback`
 }
@@ -64,6 +69,7 @@ async function resolveMinecraftProfile(
   cfg: MojangSettings,
   code: string,
   redirectUri: string,
+  locale?: string,
 ): Promise<{ uuid: string; name: string }> {
   // Step 1: Exchange OAuth code for Microsoft Live access token
   const formBody = new URLSearchParams({
@@ -80,11 +86,11 @@ async function resolveMinecraftProfile(
     body: formBody,
   })
   if (!msResp.ok) {
-    throw new Error(`Microsoft token exchange failed (HTTP ${msResp.status})`)
+    throw new Error(await ctx.t('errMsTokenFailed', { status: msResp.status }, locale))
   }
   const msData = await msResp.json<{ access_token?: string }>()
   if (!msData.access_token) {
-    throw new Error('Microsoft token response missing access_token')
+    throw new Error(await ctx.t('errMsTokenMissing', null, locale))
   }
 
   // Step 2: Authenticate with Xbox Live
@@ -102,7 +108,7 @@ async function resolveMinecraftProfile(
     }),
   })
   if (!xblResp.ok) {
-    throw new Error(`Xbox Live authentication failed (HTTP ${xblResp.status})`)
+    throw new Error(await ctx.t('errXblAuthFailed', { status: xblResp.status }, locale))
   }
   const xblData = await xblResp.json<{
     Token?: string
@@ -111,7 +117,7 @@ async function resolveMinecraftProfile(
   const xblToken = xblData.Token
   const uhs = xblData.DisplayClaims?.xui?.[0]?.uhs
   if (!xblToken || !uhs) {
-    throw new Error('Xbox Live response missing token or user hash')
+    throw new Error(await ctx.t('errXblMissing', null, locale))
   }
 
   // Step 3: Obtain XSTS token for Minecraft Services
@@ -128,11 +134,11 @@ async function resolveMinecraftProfile(
     }),
   })
   if (!xstsResp.ok) {
-    throw new Error(`XSTS authorization failed (HTTP ${xstsResp.status})`)
+    throw new Error(await ctx.t('errXstsFailed', { status: xstsResp.status }, locale))
   }
   const xstsData = await xstsResp.json<{ Token?: string }>()
   if (!xstsData.Token) {
-    throw new Error('XSTS response missing token')
+    throw new Error(await ctx.t('errXstsMissing', null, locale))
   }
 
   // Step 4: Authenticate with Minecraft Services
@@ -144,11 +150,11 @@ async function resolveMinecraftProfile(
     }),
   })
   if (!mcAuthResp.ok) {
-    throw new Error(`Minecraft Services login failed (HTTP ${mcAuthResp.status})`)
+    throw new Error(await ctx.t('errMcLoginFailed', { status: mcAuthResp.status }, locale))
   }
   const mcAuthData = await mcAuthResp.json<{ access_token?: string }>()
   if (!mcAuthData.access_token) {
-    throw new Error('Minecraft Services login response missing access_token')
+    throw new Error(await ctx.t('errMcLoginMissing', null, locale))
   }
 
   // Step 5: Fetch official Minecraft Java profile
@@ -157,16 +163,16 @@ async function resolveMinecraftProfile(
     headers: { Authorization: `Bearer ${mcAuthData.access_token}`, Accept: 'application/json' },
   })
   if (profResp.status === 404) {
-    throw new Error('This Microsoft account does not own Minecraft Java Edition.')
+    throw new Error(await ctx.t('errNoMinecraftLicense', null, locale))
   }
   if (!profResp.ok) {
-    throw new Error(`Failed to fetch Minecraft profile (HTTP ${profResp.status})`)
+    throw new Error(await ctx.t('errMcProfileFailed', { status: profResp.status }, locale))
   }
   const prof = await profResp.json<{ id?: string; name?: string }>()
   const uuid = normalizeUUID(prof.id)
   const name = typeof prof.name === 'string' ? prof.name.trim() : ''
   if (!UUID_HEX_RE.test(uuid) || !name) {
-    throw new Error('Minecraft profile response is incomplete')
+    throw new Error(await ctx.t('errMcProfileIncomplete', null, locale))
   }
   return { uuid, name }
 }
@@ -182,10 +188,11 @@ export default definePlugin({
         return badges
       }
       const cfg = await readSettings(ctx)
+      const badgeLabel = await resolveBadgeText(ctx, cfg)
       return [
         ...badges,
         {
-          text: cfg.badgeText,
+          text: badgeLabel,
           color: 'success',
           icon: 'badge-check',
         },
@@ -238,12 +245,13 @@ export default definePlugin({
     // 3. Authenticated user routes
     ctx.http.get('/me/status', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const [cfg, rec] = await Promise.all([
         readSettings(ctx),
         verifications.findOne({ userId: req.user.id }),
       ])
+      const badgeText = await resolveBadgeText(ctx, cfg, req.locale)
       return {
         status: 200,
         body: {
@@ -253,24 +261,29 @@ export default definePlugin({
           mcName: rec?.mcName ?? null,
           verifiedAt: rec?.verifiedAt ?? null,
           rewardScore: cfg.rewardScore,
-          badgeText: cfg.badgeText,
+          badgeText,
         },
       }
     })
 
     ctx.http.post('/me/start', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const existing = await verifications.findOne({ userId: req.user.id })
       if (existing?.verified) {
-        return reject('This account has already completed Minecraft verification.')
+        return reject(await ctx.t('errAlreadyVerified', null, req.locale))
       }
       const cfg = await readSettings(ctx)
       if (!cfg.clientId || !cfg.clientSecret) {
-        return reject('Microsoft OAuth clientId and clientSecret are not configured.')
+        return reject(await ctx.t('errNotConfigured', null, req.locale))
       }
-      const redirectUri = await buildRedirectURI(ctx)
+      let redirectUri: string
+      try {
+        redirectUri = await buildRedirectURI(ctx, req.locale)
+      } catch (err) {
+        return reject(err instanceof Error ? err.message : String(err))
+      }
       const state = await ctx.crypto.randomString(32)
       await ctx.kv.set<PendingOAuthState>(
         `oauth:${state}`,
@@ -296,60 +309,66 @@ export default definePlugin({
 
     ctx.http.get('/callback', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Please sign in before completing verification.' } }
+        return { status: 401, body: { detail: await ctx.t('errSignInRequired', null, req.locale) } }
       }
       if (req.query.error) {
-        return reject(`Microsoft verification canceled or denied (${req.query.error}).`)
+        return reject(await ctx.t('errOAuthDenied', { error: req.query.error }, req.locale))
       }
       const code = (req.query.code ?? '').trim()
       const state = (req.query.state ?? '').trim()
       if (!code || !state) {
-        return reject('Missing OAuth code or state parameter.')
+        return reject(await ctx.t('errMissingOAuthParams', null, req.locale))
       }
 
       const pending = await ctx.kv.get<PendingOAuthState>(`oauth:${state}`)
-      await ctx.kv.delete(`oauth:${state}`)
       if (!pending || pending.userId !== req.user.id) {
-        return reject('Invalid or expired verification state. Please try again.')
+        return reject(await ctx.t('errInvalidState', null, req.locale))
       }
+      await ctx.kv.delete(`oauth:${state}`)
 
       const existingByUser = await verifications.findOne({ userId: req.user.id })
       if (existingByUser?.verified) {
-        return reject('This account has already completed Minecraft verification.')
+        return reject(await ctx.t('errAlreadyVerified', null, req.locale))
       }
 
       const cfg = await readSettings(ctx)
       if (!cfg.clientId || !cfg.clientSecret) {
-        return reject('Microsoft OAuth credentials are not configured.')
+        return reject(await ctx.t('errNotConfigured', null, req.locale))
       }
 
-      const redirectUri = await buildRedirectURI(ctx)
-      const profile = await resolveMinecraftProfile(ctx, cfg, code, redirectUri)
+      let profile: { uuid: string; name: string }
+      try {
+        const redirectUri = await buildRedirectURI(ctx, req.locale)
+        profile = await resolveMinecraftProfile(ctx, cfg, code, redirectUri, req.locale)
+      } catch (err) {
+        return reject(err instanceof Error ? err.message : String(err))
+      }
 
       // Ensure UUID is not already linked to another SkinLoom account.
       const existingByUUID = await verifications.findOne({ uuid: profile.uuid })
       if (existingByUUID && existingByUUID.userId !== req.user.id) {
-        return reject('This Minecraft account is already verified on another SkinLoom account.')
+        return reject(await ctx.t('errUuidAlreadyLinked', null, req.locale))
       }
 
       // Resolve player name conflict if another user holds the official Minecraft username.
       const existingPlayer = await ctx.players.findByName(profile.name)
       if (existingPlayer && existingPlayer.userId !== req.user.id) {
         if (cfg.conflictPolicy === 'reject') {
-          return reject(`Player name "${profile.name}" is already in use by another account.`)
+          return reject(await ctx.t('errPlayerConflict', { name: profile.name }, req.locale))
         }
         await ctx.players.delete(existingPlayer.userId, existingPlayer.id, true)
-        const noticeBody = `Your player **${profile.name}** was reclaimed because the verified official Minecraft owner linked their account. Any player creation score has been refunded.`
-        await ctx.notify.send(existingPlayer.userId, 'Player Name Reclaimed by Verified Owner', noticeBody)
-        if (cfg.notifyByEmail) {
-          const prevOwner = await ctx.users.get(existingPlayer.userId)
-          if (prevOwner?.email) {
-            await ctx.mail.send({
-              to: prevOwner.email,
-              subject: `Player "${profile.name}" reclaimed by verified Minecraft owner`,
-              text: noticeBody.replaceAll('**', ''),
-            })
-          }
+        const prevOwner = await ctx.users.get(existingPlayer.userId)
+        const ownerLocale = prevOwner?.locale || req.locale
+        const noticeTitle = await ctx.t('reclaimNoticeTitle', null, ownerLocale)
+        const noticeBody = await ctx.t('reclaimNoticeBody', { name: profile.name }, ownerLocale)
+        await ctx.notify.send(existingPlayer.userId, noticeTitle, noticeBody)
+        if (cfg.notifyByEmail && prevOwner?.email) {
+          const mailSubject = await ctx.t('reclaimMailSubject', { name: profile.name }, ownerLocale)
+          await ctx.mail.send({
+            to: prevOwner.email,
+            subject: mailSubject,
+            text: noticeBody.replaceAll('**', ''),
+          })
         }
       }
 
@@ -408,11 +427,11 @@ export default definePlugin({
 
     ctx.http.post('/me/refresh', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const rec = await verifications.findOne({ userId: req.user.id })
       if (!rec || !rec.verified) {
-        return reject('Your account has not completed Minecraft verification yet.')
+        return reject(await ctx.t('errNotVerifiedYet', null, req.locale))
       }
 
       const resp = await ctx.fetch(
@@ -420,12 +439,12 @@ export default definePlugin({
         { method: 'GET', headers: { Accept: 'application/json' } },
       )
       if (!resp.ok) {
-        return reject(`Failed to query Mojang sessionserver (HTTP ${resp.status}).`)
+        return reject(await ctx.t('errSessionServerFailed', { status: resp.status }, req.locale))
       }
       const prof = await resp.json<{ name?: string }>()
       const latestName = typeof prof.name === 'string' ? prof.name.trim() : ''
       if (!latestName) {
-        return reject('Mojang profile did not include a valid username.')
+        return reject(await ctx.t('errMojangNameInvalid', null, req.locale))
       }
 
       if (rec.mcName && rec.mcName.toLowerCase() !== latestName.toLowerCase()) {

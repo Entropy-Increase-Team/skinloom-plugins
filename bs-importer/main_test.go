@@ -139,6 +139,7 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 		Path:   "/admin/run",
 		Body:   runBody,
 		User:   superadmin,
+		Locale: "zh-CN",
 	})
 	if err != nil || runResp.Status != http.StatusOK {
 		t.Fatalf("real import failed: status=%d err=%v body=%s", runResp.Status, err, string(runResp.RawBody))
@@ -149,12 +150,13 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 		t.Fatalf("unexpected dispatched counts: %+v", called)
 	}
 
-	// 5. Stream endpoint replays job events cleanly as SSE
+	// 5. Stream endpoint replays localized Chinese job events cleanly as SSE
 	sseReq := httptest.NewRequest(http.MethodGet, "/admin/jobs/2/stream", nil)
 	sseReq.Header.Set("X-SkinLoom-User-ID", "1")
 	sseReq.Header.Set("X-SkinLoom-User-Role", "superadmin")
+	sseReq.Header.Set("X-SkinLoom-Locale", "zh-CN")
 	rec := h.DoStreamHTTP(sseReq)
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: done") {
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "event: done") || !strings.Contains(rec.Body.String(), "任务 #2") || !strings.Contains(rec.Body.String(), "直连数据库") {
 		t.Fatalf("unexpected SSE stream response: code=%d body=%q", rec.Code, rec.Body.String())
 	}
 

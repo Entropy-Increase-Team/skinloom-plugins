@@ -24,7 +24,7 @@ import {
   TabsList,
   TabsTrigger,
 } from '@skinloom/ui'
-import { defineWebPlugin, toast, usePluginApi, useT } from '@skinloom/plugin-sdk/web'
+import { confirm, defineWebPlugin, toast, usePluginApi, useSettings, useT } from '@skinloom/plugin-sdk/web'
 import { useState, type FormEvent } from 'react'
 
 interface InviteCodeItem {
@@ -66,14 +66,32 @@ function statusBadgeVariant(status: InviteCodeItem['status']): 'default' | 'seco
   return 'secondary'
 }
 
+function statusLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  status: InviteCodeItem['status'],
+): string {
+  if (status === 'active') return t('statusActive')
+  if (status === 'used') return t('statusUsed')
+  return t('statusRevoked')
+}
+
 function AdminCodesPage() {
   const t = useT()
   const api = usePluginApi()
+  const settings = useSettings<{ codePrefix?: string; defaultMaxUses?: number; defaultExpireDays?: number }>()
   const [statusFilter, setStatusFilter] = useState<string>('all')
   const [count, setCount] = useState('10')
-  const [prefix, setPrefix] = useState('SL-')
-  const [maxUses, setMaxUses] = useState('1')
-  const [expireDays, setExpireDays] = useState('0')
+  const [prefix, setPrefix] = useState(
+    typeof settings.codePrefix === 'string' && settings.codePrefix.trim() ? settings.codePrefix : 'SL-',
+  )
+  const [maxUses, setMaxUses] = useState(
+    typeof settings.defaultMaxUses === 'number' && settings.defaultMaxUses >= 1 ? String(settings.defaultMaxUses) : '1',
+  )
+  const [expireDays, setExpireDays] = useState(
+    typeof settings.defaultExpireDays === 'number' && settings.defaultExpireDays >= 0
+      ? String(settings.defaultExpireDays)
+      : '0',
+  )
   const [note, setNote] = useState('')
   const [busyCode, setBusyCode] = useState<string | null>(null)
 
@@ -120,6 +138,13 @@ function AdminCodesPage() {
   }
 
   const handleDelete = async (code: string) => {
+    const ok = await confirm({
+      title: t('confirmDeleteTitle', { code }),
+      description: t('confirmDeleteDesc'),
+      confirmLabel: t('confirmDeleteBtn'),
+      destructive: true,
+    })
+    if (!ok) return
     setBusyCode(code)
     try {
       await api.delete(`/admin/codes/${encodeURIComponent(code)}`)
@@ -148,7 +173,7 @@ function AdminCodesPage() {
           <a
             href={exportHref}
             download="invitation-codes.csv"
-            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
+            className="inline-flex h-9 items-center justify-center rounded-md border border-border bg-card px-3 text-sm font-medium text-foreground hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-10"
           >
             {t('exportCsv')}
           </a>
@@ -189,7 +214,7 @@ function AdminCodesPage() {
               <Input id="ic-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
             </div>
             <div className="sm:col-span-2 lg:col-span-5">
-              <Button type="submit" loading={generateMutation.isPending}>
+              <Button type="submit" className="pointer-coarse:h-10" loading={generateMutation.isPending}>
                 {t('generateBtn')}
               </Button>
             </div>
@@ -199,8 +224,8 @@ function AdminCodesPage() {
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(String(v))}>
-            <TabsList>
+          <Tabs value={statusFilter} onValueChange={(v) => setStatusFilter(String(v))} className="max-w-full">
+            <TabsList className="no-scrollbar h-auto max-w-full overflow-x-auto">
               <TabsTrigger value="all">{t('filterAll')}</TabsTrigger>
               <TabsTrigger value="active">{t('filterActive')}</TabsTrigger>
               <TabsTrigger value="used">{t('filterUsed')}</TabsTrigger>
@@ -209,7 +234,11 @@ function AdminCodesPage() {
           </Tabs>
         </CardHeader>
         <CardContent>
-          {items.length === 0 ? (
+          {query.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{query.error.message}</AlertDescription>
+            </Alert>
+          ) : items.length === 0 ? (
             <p className="py-8 text-center text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             <div className="overflow-x-auto">
@@ -229,7 +258,7 @@ function AdminCodesPage() {
                     <TableRow key={item.id}>
                       <TableCell className="font-mono text-xs">{item.code}</TableCell>
                       <TableCell>
-                        <Badge variant={statusBadgeVariant(item.status)}>{item.status}</Badge>
+                        <Badge variant={statusBadgeVariant(item.status)}>{statusLabel(t, item.status)}</Badge>
                       </TableCell>
                       <TableCell className="tabular-nums">
                         {item.usedCount} / {item.maxUses}
@@ -246,6 +275,7 @@ function AdminCodesPage() {
                             <Button
                               size="sm"
                               variant="outline"
+                              className="pointer-coarse:h-10"
                               disabled={busyCode === item.code}
                               onClick={() => void handleRevoke(item.code)}
                             >
@@ -255,6 +285,7 @@ function AdminCodesPage() {
                           <Button
                             size="sm"
                             variant="destructive"
+                            className="pointer-coarse:h-10"
                             disabled={busyCode === item.code}
                             onClick={() => void handleDelete(item.code)}
                           >
@@ -318,6 +349,7 @@ function UserInvitesPage() {
           </CardHeader>
           <CardContent>
             <Button
+              className="pointer-coarse:h-10"
               loading={createMutation.isPending}
               disabled={!data || data.activeCount >= data.userMaxActiveCodes}
               onClick={() => createMutation.mutate({})}
@@ -330,7 +362,11 @@ function UserInvitesPage() {
 
       <Card>
         <CardContent className="pt-6">
-          {items.length === 0 ? (
+          {query.isError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{query.error.message}</AlertDescription>
+            </Alert>
+          ) : items.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">{t('empty')}</p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -343,7 +379,7 @@ function UserInvitesPage() {
                     <CopyField value={item.code} />
                   </div>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Badge variant={statusBadgeVariant(item.status)}>{item.status}</Badge>
+                    <Badge variant={statusBadgeVariant(item.status)}>{statusLabel(t, item.status)}</Badge>
                     <span className="tabular-nums">
                       {item.usedCount}/{item.maxUses}
                     </span>

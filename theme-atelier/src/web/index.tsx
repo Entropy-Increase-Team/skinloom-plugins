@@ -41,6 +41,16 @@ function AtelierFooter(props: AtelierFooterProps) {
   )
 }
 
+function textureTypeLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  type: TextureType,
+): string {
+  if (type === 'steve') return t('typeSteve')
+  if (type === 'alex') return t('typeAlex')
+  if (type === 'cape') return t('typeCape')
+  return type
+}
+
 function AtelierTextureCard(props: AtelierTextureCardProps) {
   const t = useT()
   const tex = props.texture
@@ -57,22 +67,22 @@ function AtelierTextureCard(props: AtelierTextureCardProps) {
     >
       <div className="relative flex aspect-[4/3] items-center justify-center bg-muted/60 p-3">
         <TexturePreview texture={{ id: tex.id }} type={tex.type} height={140} alt={title} className="max-h-full w-auto" />
-        <div className="absolute top-2 left-2 flex items-center gap-1">
-          <Badge variant="secondary" className="text-[11px] uppercase">
-            {tex.type}
+        <div className="absolute top-2 left-2 flex flex-wrap items-center gap-1">
+          <Badge variant="secondary" className="text-xs">
+            {textureTypeLabel(t, tex.type)}
           </Badge>
           {tex.public === false && (
-            <Badge variant="outline" className="bg-card/85 text-[11px]">
+            <Badge variant="outline" className="bg-card/85 text-xs">
               {t('private')}
             </Badge>
           )}
         </div>
       </div>
-      <div className="flex flex-col gap-1 border-t border-border/70 px-3 py-2.5">
+      <div className="flex min-w-0 flex-col gap-1 border-t border-border/70 px-3 py-2.5">
         <div className="truncate text-sm font-medium text-foreground group-hover:text-primary">
           {title}
         </div>
-        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div className="flex min-w-0 items-center justify-between gap-2 text-xs text-muted-foreground">
           <span className="truncate">{tex.uploader?.nickname || `#${tex.id}`}</span>
           {typeof tex.likes === 'number' && (
             <span className="shrink-0 tabular-nums">{t('likes', { count: tex.likes })}</span>

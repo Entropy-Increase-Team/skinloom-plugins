@@ -5,6 +5,10 @@ import { describe, expect, it } from 'vitest'
 import plugin from './server.js'
 
 const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../plugin.json'), 'utf8'))
+const locales = {
+  'zh-CN': JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/zh-CN.json'), 'utf8')),
+  en: JSON.parse(readFileSync(path.resolve(import.meta.dirname, '../locales/en.json'), 'utf8')),
+}
 
 const OWNER = { id: 7, email: 'owner@example.com', nickname: 'Owner', role: 'user' as const }
 const OTHER = { id: 8, email: 'other@example.com', nickname: 'Other', role: 'user' as const }
@@ -13,6 +17,7 @@ describe('texture-description plugin', () => {
   it('captures upload descriptions, enforces private access, supports editing, and imports from BS', async () => {
     const host = createTestHost({
       manifest,
+      locales,
       settings: { maxLength: 500 },
       fixtures: {
         textures: [
@@ -52,12 +57,22 @@ describe('texture-description plugin', () => {
       canEdit: false,
     })
 
-    // Non-owner cannot edit
+    // Non-owner cannot edit (localized in zh-CN & en)
     const forbiddenEdit = await host.request('PUT', '/textures/100', {
       user: OTHER,
+      locale: 'zh-CN',
       body: { description: 'Hacked' },
     })
     expect(forbiddenEdit.status).toBe(403)
+    expect((forbiddenEdit.body as { detail: string }).detail).toContain('仅材质上传者或管理员')
+
+    const tooLongEdit = await host.request('PUT', '/textures/100', {
+      user: OWNER,
+      locale: 'en',
+      body: { description: 'x'.repeat(501) },
+    })
+    expect(tooLongEdit.status).toBe(422)
+    expect((tooLongEdit.body as { detail: string }).detail).toContain('500')
 
     // Private texture hidden from non-owner
     const privRead = await host.request('GET', '/textures/101', { user: OTHER })

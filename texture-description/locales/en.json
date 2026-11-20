@@ -5,5 +5,11 @@
   "save": "Save",
   "cancel": "Cancel",
   "placeholder": "Write a description, author credit, or usage notes...",
-  "savedToast": "Description saved."
+  "savedToast": "Description saved.",
+  "errTooLong": "Description exceeds {max} characters.",
+  "errInvalidId": "Invalid texture ID.",
+  "errNotFound": "Texture not found.",
+  "errPrivate": "This texture is private.",
+  "errAuthRequired": "Authentication required.",
+  "errForbiddenEdit": "Only the uploader or an administrator may edit this description."
 }

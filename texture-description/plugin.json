@@ -3,7 +3,7 @@
   "id": "texture-description",
   "kind": "plugin",
   "runtime": "js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": {
     "zh-CN": "材质描述",
     "en": "Texture Description"

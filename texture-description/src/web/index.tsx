@@ -1,5 +1,5 @@
 import { Button, Card, CardContent, CardHeader, CardTitle, Textarea } from '@skinloom/ui'
-import { defineWebPlugin, toast, usePluginApi, useT, type PluginSlotProps } from '@skinloom/plugin-sdk/web'
+import { defineWebPlugin, toast, usePluginApi, useSettings, useT, type PluginSlotProps } from '@skinloom/plugin-sdk/web'
 import { useState } from 'react'
 
 interface TextureDescResponse {
@@ -12,6 +12,9 @@ interface TextureDescResponse {
 function TextureDescriptionPanel(props: PluginSlotProps['skinlib.detail.below']) {
   const t = useT()
   const api = usePluginApi()
+  const settings = useSettings<{ maxLength?: number }>()
+  const rawMaxLen = Number(settings.maxLength ?? 2000)
+  const maxLength = Number.isFinite(rawMaxLen) ? Math.max(50, Math.min(10000, Math.trunc(rawMaxLen))) : 2000
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
 
@@ -42,6 +45,7 @@ function TextureDescriptionPanel(props: PluginSlotProps['skinlib.detail.below'])
           <Button
             size="sm"
             variant="outline"
+            className="shrink-0 pointer-coarse:h-10"
             onClick={() => {
               setDraft(data.description)
               setEditing(true)
@@ -57,25 +61,31 @@ function TextureDescriptionPanel(props: PluginSlotProps['skinlib.detail.below'])
             <Textarea
               rows={4}
               value={draft}
-              maxLength={2000}
+              maxLength={maxLength}
               placeholder={t('placeholder')}
               onChange={(e) => setDraft(e.target.value)}
             />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                loading={saveMutation.isPending}
-                onClick={() => saveMutation.mutate({ description: draft })}
-              >
-                {t('save')}
-              </Button>
-              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
-                {t('cancel')}
-              </Button>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="pointer-coarse:h-10"
+                  loading={saveMutation.isPending}
+                  onClick={() => saveMutation.mutate({ description: draft })}
+                >
+                  {t('save')}
+                </Button>
+                <Button size="sm" variant="ghost" className="pointer-coarse:h-10" onClick={() => setEditing(false)}>
+                  {t('cancel')}
+                </Button>
+              </div>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {draft.length} / {maxLength}
+              </span>
             </div>
           </div>
         ) : data.description ? (
-          <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
+          <p className="break-words whitespace-pre-wrap text-sm leading-relaxed text-foreground">
             {data.description}
           </p>
         ) : (

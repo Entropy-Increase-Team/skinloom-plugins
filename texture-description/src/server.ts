@@ -33,7 +33,7 @@ export default definePlugin({
       if (!desc) return
       const maxLen = await readMaxLength(ctx)
       if (desc.length > maxLen) {
-        return reject(`Texture description exceeds ${maxLen} characters.`)
+        return reject(await ctx.t('errTooLong', { max: maxLen }))
       }
       await ctx.kv.set(`pending:${payload.userId}:${payload.hash}`, desc, 300)
       return
@@ -112,16 +112,16 @@ export default definePlugin({
     ctx.http.get('/textures/:tid', { auth: 'public' }, async (req) => {
       const tid = Math.trunc(Number(req.params.tid ?? 0))
       if (!Number.isFinite(tid) || tid <= 0) {
-        return { status: 400, body: { detail: 'Invalid texture ID' } }
+        return { status: 400, body: { detail: await ctx.t('errInvalidId', null, req.locale) } }
       }
       const tex = await ctx.textures.get(tid)
       if (!tex) {
-        return { status: 404, body: { detail: 'Texture not found' } }
+        return { status: 404, body: { detail: await ctx.t('errNotFound', null, req.locale) } }
       }
       const isAdmin = req.user?.role === 'admin' || req.user?.role === 'superadmin'
       const isOwner = Boolean(req.user && tex.uploaderId !== null && req.user.id === tex.uploaderId)
       if (!tex.public && !isOwner && !isAdmin) {
-        return { status: 403, body: { detail: 'Private texture' } }
+        return { status: 403, body: { detail: await ctx.t('errPrivate', null, req.locale) } }
       }
       const doc = await descriptions.findOne({ textureId: tid })
       return {
@@ -137,27 +137,27 @@ export default definePlugin({
 
     ctx.http.put('/textures/:tid', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const tid = Math.trunc(Number(req.params.tid ?? 0))
       if (!Number.isFinite(tid) || tid <= 0) {
-        return { status: 400, body: { detail: 'Invalid texture ID' } }
+        return { status: 400, body: { detail: await ctx.t('errInvalidId', null, req.locale) } }
       }
       const tex = await ctx.textures.get(tid)
       if (!tex) {
-        return { status: 404, body: { detail: 'Texture not found' } }
+        return { status: 404, body: { detail: await ctx.t('errNotFound', null, req.locale) } }
       }
       const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin'
       const isOwner = tex.uploaderId !== null && req.user.id === tex.uploaderId
       if (!isOwner && !isAdmin) {
-        return { status: 403, body: { detail: 'Only the uploader or an administrator may edit this description.' } }
+        return { status: 403, body: { detail: await ctx.t('errForbiddenEdit', null, req.locale) } }
       }
 
       const body = (req.body ?? {}) as Record<string, unknown>
       const text = typeof body.description === 'string' ? body.description.trim() : ''
       const maxLen = await readMaxLength(ctx)
       if (text.length > maxLen) {
-        return reject(`Description exceeds ${maxLen} characters.`)
+        return reject(await ctx.t('errTooLong', { max: maxLen }, req.locale))
       }
 
       const existing = await descriptions.findOne({ textureId: tid })

@@ -1,5 +1,8 @@
 {
   "poweredBy": "由云织 SkinLoom 驱动 · Atelier 工坊主题",
   "private": "私有",
-  "likes": "{count} 收藏"
+  "likes": "{count} 收藏",
+  "typeSteve": "经典",
+  "typeAlex": "纤细",
+  "typeCape": "披风"
 }

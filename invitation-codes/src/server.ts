@@ -109,22 +109,22 @@ export default definePlugin({
       const code = extractInviteCode(payload.form)
       if (!code) {
         if (cfg.requireCode) {
-          return reject('An invitation code is required to register on this site.')
+          return reject(await ctx.t('errRequired'))
         }
         return
       }
       const doc = await codes.findOne({ code })
       if (!doc) {
-        return reject('Invalid invitation code.')
+        return reject(await ctx.t('errInvalid'))
       }
       if (doc.status === 'revoked') {
-        return reject('This invitation code has been revoked.')
+        return reject(await ctx.t('errRevoked'))
       }
       if (isExpired(doc)) {
-        return reject('This invitation code has expired.')
+        return reject(await ctx.t('errExpired'))
       }
       if (doc.status === 'used' || doc.usedCount >= doc.maxUses) {
-        return reject('This invitation code has already reached its usage limit.')
+        return reject(await ctx.t('errExhausted'))
       }
       return
     })
@@ -210,7 +210,10 @@ export default definePlugin({
               ? new Date(item.usedAt).toISOString()
               : null,
             expiresAt: null,
-            note: typeof item.note === 'string' ? item.note.slice(0, 120) : 'Imported from Blessing Skin',
+            note:
+              typeof item.note === 'string' && item.note.trim()
+                ? item.note.trim().slice(0, 120)
+                : await ctx.t('importedNote'),
           })
           imported++
         }
@@ -277,7 +280,7 @@ export default definePlugin({
           }
         }
         if (!code) {
-          return reject('Failed to allocate unique invitation code after retries.')
+          return reject(await ctx.t('errAllocateFailed', null, req.locale))
         }
         const doc = await codes.insertOne({
           code,
@@ -311,10 +314,10 @@ export default definePlugin({
       const code = (req.params.code ?? '').trim().toUpperCase()
       const doc = await codes.findOne({ code })
       if (!doc) {
-        return { status: 404, body: { detail: 'Invitation code not found' } }
+        return { status: 404, body: { detail: await ctx.t('errNotFound', null, req.locale) } }
       }
       if (doc.status !== 'active') {
-        return reject(`Cannot revoke code with status "${doc.status}".`)
+        return reject(await ctx.t('errCannotRevoke', null, req.locale))
       }
       await codes.updateOne({ id: doc.id }, { status: 'revoked' })
       await ctx.audit.record('invitation_codes.revoke', 'invite_code', code, null)
@@ -325,7 +328,7 @@ export default definePlugin({
       const code = (req.params.code ?? '').trim().toUpperCase()
       const doc = await codes.findOne({ code })
       if (!doc) {
-        return { status: 404, body: { detail: 'Invitation code not found' } }
+        return { status: 404, body: { detail: await ctx.t('errNotFound', null, req.locale) } }
       }
       await codes.deleteOne({ id: doc.id })
       await ctx.audit.record('invitation_codes.delete', 'invite_code', code, null)
@@ -376,7 +379,7 @@ export default definePlugin({
     // 5. Self-service User API routes
     ctx.http.get('/me/codes', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const [cfg, page, activeCount] = await Promise.all([
         readSettings(ctx),
@@ -397,15 +400,17 @@ export default definePlugin({
 
     ctx.http.post('/me/codes/generate', { auth: 'user' }, async (req) => {
       if (!req.user) {
-        return { status: 401, body: { detail: 'Authentication required' } }
+        return { status: 401, body: { detail: await ctx.t('errAuthRequired', null, req.locale) } }
       }
       const cfg = await readSettings(ctx)
       if (!cfg.allowUserGenerate) {
-        return reject('Self-service invitation code generation is disabled.')
+        return reject(await ctx.t('errUserGenerateDisabled', null, req.locale))
       }
       const activeCount = await codes.count({ creatorId: req.user.id, status: 'active' })
       if (activeCount >= cfg.userMaxActiveCodes) {
-        return reject(`You already hold ${activeCount}/${cfg.userMaxActiveCodes} active invitation codes.`)
+        return reject(
+          await ctx.t('errMaxActiveReached', { active: activeCount, max: cfg.userMaxActiveCodes }, req.locale),
+        )
       }
       let code = ''
       for (let attempt = 0; attempt < 5; attempt++) {
@@ -416,13 +421,15 @@ export default definePlugin({
         }
       }
       if (!code) {
-        return reject('Failed to allocate unique invitation code; please try again.')
+        return reject(await ctx.t('errAllocateFailed', null, req.locale))
       }
 
       if (cfg.userGenerateCost > 0) {
         const balance = await ctx.score.balance(req.user.id)
         if (balance < cfg.userGenerateCost) {
-          return reject(`Insufficient score (need ${cfg.userGenerateCost}, have ${balance}).`)
+          return reject(
+            await ctx.t('errInsufficientScore', { cost: cfg.userGenerateCost, balance }, req.locale),
+          )
         }
         await ctx.score.apply(
           req.user.id,
@@ -447,7 +454,7 @@ export default definePlugin({
         createdAt,
         usedAt: null,
         expiresAt,
-        note: `Generated by user #${req.user.id}`,
+        note: await ctx.t('generatedByUserNote', { userId: req.user.id }, req.locale),
       })
       return { status: 201, body: { item: doc } }
     })
