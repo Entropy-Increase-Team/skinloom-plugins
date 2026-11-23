@@ -27,13 +27,31 @@ import {
   Tabs,
   TabsList,
   TabsTrigger,
+  useConfirm,
 } from '@skinloom/ui'
-import { defineWebPlugin, toast, usePluginApi, useT } from '@skinloom/plugin-sdk/web'
+import { defineWebPlugin, toast, usePluginApi, useSite, useT } from '@skinloom/plugin-sdk/web'
 import { useEffect, useRef, useState } from 'react'
+
+interface ProviderSummary {
+  id: string
+  targetPlugin: string
+  dynamic: boolean
+  label?: Record<string, string>
+  description?: Record<string, string>
+  optionKeys?: string[]
+  optionPrefixes?: string[]
+  tables?: string[]
+}
 
 interface TableProbe {
   table: string
   targetPlugin: string
+  dynamic?: boolean
+  label?: Record<string, string>
+  description?: Record<string, string>
+  optionKeys?: string[]
+  optionPrefixes?: string[]
+  tables?: string[]
   exists: boolean
   rows: number
 }
@@ -75,17 +93,34 @@ interface JobSummary {
   createdAt: string
 }
 
-const DEFAULT_TABLES = ['invitation_codes', 'mojang_verifications', 'textures_description']
+const LEGACY_TABLES = ['invitation_codes', 'mojang_verifications', 'textures_description']
 const DRIVER_ITEMS = [
   { value: 'mysql', label: 'MySQL / MariaDB' },
   { value: 'postgres', label: 'PostgreSQL' },
   { value: 'sqlite', label: 'SQLite' },
 ]
 
-function tableLabel(t: (key: string, params?: Record<string, string | number>) => string, tbl: string): string {
+function pickLocalized(map: Record<string, string> | undefined, locale: string, fallback: string): string {
+  if (!map) return fallback
+  if (map[locale]) return map[locale]!
+  const norm = locale.toLowerCase()
+  if (norm.startsWith('zh') && map['zh-CN']) return map['zh-CN']!
+  if (map.en) return map.en
+  const first = Object.values(map).find((v) => v && v.trim())
+  return first ?? fallback
+}
+
+function tableLabel(
+  t: (key: string, params?: Record<string, string | number>) => string,
+  tbl: string,
+  locale: string,
+  providers: ProviderSummary[],
+): string {
   if (tbl === 'invitation_codes') return t('tableInvitationCodes')
   if (tbl === 'mojang_verifications') return t('tableMojangVerifications')
   if (tbl === 'textures_description') return t('tableTextureDescription')
+  const match = providers.find((p) => p.id === tbl)
+  if (match) return pickLocalized(match.label, locale, match.targetPlugin)
   return tbl
 }
 
@@ -103,9 +138,26 @@ function statusLabel(t: (key: string, params?: Record<string, string | number>) 
   return status
 }
 
+function formatProviderScope(prov: ProviderSummary): string {
+  const parts: string[] = []
+  if (prov.optionKeys && prov.optionKeys.length > 0) {
+    parts.push(`options: ${prov.optionKeys.slice(0, 5).join(', ')}${prov.optionKeys.length > 5 ? ` (+${prov.optionKeys.length - 5})` : ''}`)
+  }
+  if (prov.optionPrefixes && prov.optionPrefixes.length > 0) {
+    parts.push(`prefixes: ${prov.optionPrefixes.join(', ')}`)
+  }
+  if (prov.tables && prov.tables.length > 0) {
+    parts.push(`tables: ${prov.tables.join(', ')}`)
+  }
+  return parts.join(' | ')
+}
+
 function BSImporterPage() {
   const t = useT()
+  const site = useSite()
   const api = usePluginApi()
+  const confirm = useConfirm()
+  const locale = site.locale || 'zh-CN'
 
   const [mode, setMode] = useState<'db' | 'bridge'>('db')
   const [driver, setDriver] = useState('mysql')
@@ -113,11 +165,13 @@ function BSImporterPage() {
   const [tablePrefix, setTablePrefix] = useState('')
   const [bridgeUrl, setBridgeUrl] = useState('')
   const [bridgeToken, setBridgeToken] = useState('')
-  const [selectedTables, setSelectedTables] = useState<string[]>(DEFAULT_TABLES)
+  const [selectedTables, setSelectedTables] = useState<string[]>(LEGACY_TABLES)
   const [probe, setProbe] = useState<TestSourceResult | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const [lastReport, setLastReport] = useState<ImportReport | null>(null)
+  const [activeRunMode, setActiveRunMode] = useState<'dry' | 'live' | null>(null)
   const esRef = useRef<EventSource | null>(null)
+  const initSyncedRef = useRef(false)
 
   useEffect(() => {
     return () => {
@@ -126,15 +180,43 @@ function BSImporterPage() {
     }
   }, [])
 
+  const providersQuery = api.useQuery<{ items: ProviderSummary[] }>('/admin/providers')
+  const baseProviders: ProviderSummary[] =
+    providersQuery.data?.items ??
+    LEGACY_TABLES.map((id) => ({ id, targetPlugin: id, dynamic: false }))
+  const providers: ProviderSummary[] = [...baseProviders]
+  if (probe?.tables) {
+    for (const tp of probe.tables) {
+      if (!providers.some((p) => p.id === tp.table)) {
+        providers.push({
+          id: tp.table,
+          targetPlugin: tp.targetPlugin,
+          dynamic: Boolean(tp.dynamic),
+          label: tp.label,
+          description: tp.description,
+          optionKeys: tp.optionKeys,
+          optionPrefixes: tp.optionPrefixes,
+          tables: tp.tables,
+        })
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (!initSyncedRef.current && providersQuery.data?.items?.length) {
+      initSyncedRef.current = true
+      setSelectedTables(providersQuery.data.items.map((p) => p.id))
+    }
+  }, [providersQuery.data])
+
   const jobsQuery = api.useQuery<{ items: JobSummary[] }>('/admin/jobs')
 
   const testMutation = api.useMutation<TestSourceResult, Record<string, unknown>>('POST /admin/test', {
     onSuccess(data) {
       setProbe(data)
       const present = data.tables.filter((x) => x.exists && x.rows > 0).map((x) => x.table)
-      if (present.length > 0) {
-        setSelectedTables(present)
-      }
+      setSelectedTables(present)
+      void providersQuery.refetch()
       toast.success(t('verifiedToast'))
     },
     onError(err) {
@@ -147,6 +229,7 @@ function BSImporterPage() {
     Record<string, unknown>
   >('POST /admin/run', {
     onSuccess(data) {
+      setActiveRunMode(null)
       setLastReport(data.report ?? null)
       const label = statusLabel(t, data.status)
       if (data.status === 'completed_with_errors' || data.status === 'failed') {
@@ -178,9 +261,16 @@ function BSImporterPage() {
       }
     },
     onError(err) {
+      setActiveRunMode(null)
       toast.error(err.message)
     },
   })
+
+  const hasCredentials =
+    mode === 'db'
+      ? dsn.trim().length > 0
+      : bridgeUrl.trim().length > 0 && (bridgeToken.trim().length > 0 || bridgeUrl.trim().startsWith('{'))
+  const busy = testMutation.isPending || runMutation.isPending
 
   const buildPayload = (dryRun: boolean) => ({
     mode,
@@ -192,6 +282,24 @@ function BSImporterPage() {
     tables: selectedTables,
     dryRun,
   })
+
+  const startRun = async (dryRun: boolean) => {
+    if (!dryRun) {
+      const ok = await confirm({
+        title: t('confirmImportTitle'),
+        description: t('confirmImportDesc', { count: selectedTables.length }),
+        confirmLabel: t('importBtn'),
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    esRef.current?.close()
+    esRef.current = null
+    setLogs([])
+    setLastReport(null)
+    setActiveRunMode(dryRun ? 'dry' : 'live')
+    runMutation.mutate(buildPayload(dryRun))
+  }
 
   const toggleTable = (tbl: string) => {
     setSelectedTables((prev) => (prev.includes(tbl) ? prev.filter((x) => x !== tbl) : [...prev, tbl]))
@@ -213,7 +321,13 @@ function BSImporterPage() {
           <CardTitle>{t('sourceCardTitle')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Tabs value={mode} onValueChange={(v) => setMode(v === 'bridge' ? 'bridge' : 'db')}>
+          <Tabs
+            value={mode}
+            onValueChange={(v) => {
+              setMode(v === 'bridge' ? 'bridge' : 'db')
+              setProbe(null)
+            }}
+          >
             <TabsList className="grid h-auto w-full grid-cols-1 sm:inline-flex sm:w-auto">
               <TabsTrigger value="db" className="whitespace-normal text-left sm:text-center pointer-coarse:min-h-10">
                 {t('modeDb')}
@@ -232,7 +346,10 @@ function BSImporterPage() {
                   items={DRIVER_ITEMS}
                   value={driver}
                   onValueChange={(v) => {
-                    if (v) setDriver(String(v))
+                    if (v) {
+                      setDriver(String(v))
+                      setProbe(null)
+                    }
                   }}
                 >
                   <SelectTrigger id="bs-driver" className="pointer-coarse:h-10">
@@ -251,11 +368,14 @@ function BSImporterPage() {
                 <Label htmlFor="bs-dsn">{t('dsn')}</Label>
                 <Input
                   id="bs-dsn"
-                  type="password"
+                  type={driver === 'sqlite' ? 'text' : 'password'}
                   autoComplete="off"
-                  placeholder="user:pass@tcp(127.0.0.1:3306)/blessing_skin"
+                  placeholder={driver === 'sqlite' ? '/path/to/blessing-skin.sqlite' : 'user:pass@tcp(127.0.0.1:3306)/blessing_skin'}
                   value={dsn}
-                  onChange={(e) => setDsn(e.target.value)}
+                  onChange={(e) => {
+                    setDsn(e.target.value)
+                    setProbe(null)
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -264,7 +384,10 @@ function BSImporterPage() {
                   id="bs-prefix"
                   placeholder="bs_"
                   value={tablePrefix}
-                  onChange={(e) => setTablePrefix(e.target.value)}
+                  onChange={(e) => {
+                    setTablePrefix(e.target.value)
+                    setProbe(null)
+                  }}
                 />
               </div>
             </div>
@@ -274,9 +397,28 @@ function BSImporterPage() {
                 <Label htmlFor="bs-bridge-url">{t('bridgeUrl')}</Label>
                 <Input
                   id="bs-bridge-url"
-                  placeholder="https://old-bs.example.com/skinloom-bridge"
+                  placeholder="https://old-bs.example.com"
                   value={bridgeUrl}
-                  onChange={(e) => setBridgeUrl(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    setProbe(null)
+                    const trimmed = val.trim()
+                    if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+                      try {
+                        const parsed = JSON.parse(trimmed) as { url?: unknown; token?: unknown }
+                        if (typeof parsed.url === 'string' && parsed.url.trim()) {
+                          setBridgeUrl(parsed.url.trim())
+                          if (typeof parsed.token === 'string' && parsed.token.trim()) {
+                            setBridgeToken(parsed.token.trim())
+                          }
+                          return
+                        }
+                      } catch {
+                        // Fall through and let user keep editing.
+                      }
+                    }
+                    setBridgeUrl(val)
+                  }}
                 />
               </div>
               <div className="space-y-1.5">
@@ -286,7 +428,10 @@ function BSImporterPage() {
                   type="password"
                   autoComplete="off"
                   value={bridgeToken}
-                  onChange={(e) => setBridgeToken(e.target.value)}
+                  onChange={(e) => {
+                    setBridgeToken(e.target.value)
+                    setProbe(null)
+                  }}
                 />
               </div>
             </div>
@@ -296,6 +441,7 @@ function BSImporterPage() {
             variant="outline"
             className="pointer-coarse:h-10"
             loading={testMutation.isPending}
+            disabled={busy || !hasCredentials}
             onClick={() => testMutation.mutate(buildPayload(true))}
           >
             {testMutation.isPending ? t('testing') : t('testBtn')}
@@ -308,20 +454,46 @@ function BSImporterPage() {
           <CardTitle>{t('tablesCardTitle')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
+          {providersQuery.isError && (
+            <Alert variant="destructive">
+              <AlertDescription>{providersQuery.error.message}</AlertDescription>
+            </Alert>
+          )}
           <div className="flex flex-col gap-3">
-            {DEFAULT_TABLES.map((tbl) => {
+            {providers.map((prov) => {
+              const tbl = prov.id
               const info = probe?.tables.find((x) => x.table === tbl)
+              const desc = prov.dynamic ? pickLocalized(prov.description, locale, '') : ''
+              const scopeText = prov.dynamic ? formatProviderScope(prov) : ''
               return (
                 <label
                   key={tbl}
                   className="flex min-h-10 cursor-pointer flex-wrap items-center justify-between gap-2 rounded-lg border border-border px-3 py-2.5 text-sm"
                 >
-                  <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex min-w-0 items-start gap-2.5">
                     <Checkbox
+                      className="mt-0.5"
                       checked={selectedTables.includes(tbl)}
                       onCheckedChange={() => toggleTable(tbl)}
                     />
-                    <span className="min-w-0 break-words text-sm">{tableLabel(t, tbl)}</span>
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className="flex flex-wrap items-center gap-1.5">
+                        <span className="min-w-0 break-words text-sm">
+                          {tableLabel(t, tbl, locale, providers)}
+                        </span>
+                        {prov.dynamic && (
+                          <Badge variant="outline" className="text-[11px]">
+                            {t('dynamicProviderBadge')}
+                          </Badge>
+                        )}
+                      </span>
+                      {desc && <span className="break-words text-xs text-muted-foreground">{desc}</span>}
+                      {scopeText && (
+                        <span className="break-all font-mono text-[11px] text-muted-foreground">
+                          {t('providerScopeLabel', { scope: scopeText })}
+                        </span>
+                      )}
+                    </span>
                   </span>
                   {info && (
                     <Badge variant={info.exists && info.rows > 0 ? 'default' : 'secondary'} className="shrink-0">
@@ -337,25 +509,17 @@ function BSImporterPage() {
             <Button
               variant="outline"
               className="pointer-coarse:h-10"
-              loading={runMutation.isPending}
-              disabled={selectedTables.length === 0}
-              onClick={() => {
-                setLogs([])
-                setLastReport(null)
-                runMutation.mutate(buildPayload(true))
-              }}
+              loading={activeRunMode === 'dry'}
+              disabled={busy || !hasCredentials || selectedTables.length === 0}
+              onClick={() => void startRun(true)}
             >
               {t('dryRunBtn')}
             </Button>
             <Button
               className="pointer-coarse:h-10"
-              loading={runMutation.isPending}
-              disabled={selectedTables.length === 0}
-              onClick={() => {
-                setLogs([])
-                setLastReport(null)
-                runMutation.mutate(buildPayload(false))
-              }}
+              loading={activeRunMode === 'live'}
+              disabled={busy || !hasCredentials || selectedTables.length === 0}
+              onClick={() => void startRun(false)}
             >
               {t('importBtn')}
             </Button>
@@ -363,32 +527,57 @@ function BSImporterPage() {
         </CardContent>
       </Card>
 
-      {lastReport && lastReport.totalErrors > 0 && (
-        <Alert variant="destructive">
-          <AlertTitle>{t('errorsTitle', { count: lastReport.totalErrors })}</AlertTitle>
+      {lastReport && (
+        <Alert variant={lastReport.totalErrors > 0 ? 'destructive' : 'default'}>
+          <AlertTitle>
+            {lastReport.dryRun
+              ? t('reportSummaryDryRunTitle', {
+                  read: lastReport.totalRead,
+                  skipped: lastReport.totalSkipped,
+                  errors: lastReport.totalErrors,
+                })
+              : t('reportSummaryTitle', {
+                  read: lastReport.totalRead,
+                  imported: lastReport.totalImported,
+                  skipped: lastReport.totalSkipped,
+                  errors: lastReport.totalErrors,
+                })}
+          </AlertTitle>
           <AlertDescription className="mt-2 space-y-2">
-            {lastReport.tables
-              .filter((tbl) => tbl.errors && tbl.errors.length > 0)
-              .map((tbl) => {
-                const errs = tbl.errors ?? []
-                return (
-                  <div key={tbl.table} className="space-y-1">
-                    <div className="text-xs font-medium">{tableLabel(t, tbl.table)}</div>
-                    <ul className="list-disc space-y-0.5 pl-4 font-mono text-xs">
-                      {errs.slice(0, 20).map((errText, idx) => (
-                        <li key={idx} className="break-all">
-                          {errText}
-                        </li>
-                      ))}
-                    </ul>
-                    {errs.length > 20 && (
-                      <p className="text-xs text-muted-foreground">
-                        {t('errorsMore', { count: errs.length - 20 })}
-                      </p>
-                    )}
+            {lastReport.tables.map((tbl) => {
+              const errs = tbl.errors ?? []
+              return (
+                <div key={tbl.table} className="space-y-1">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="font-medium">{tableLabel(t, tbl.table, locale, providers)}</span>
+                    <span className="font-mono text-muted-foreground tabular-nums">
+                      {t('reportRowMeta', {
+                        read: tbl.read,
+                        imported: tbl.imported,
+                        skipped: tbl.skipped,
+                        errors: errs.length,
+                      })}
+                    </span>
                   </div>
-                )
-              })}
+                  {errs.length > 0 && (
+                    <>
+                      <ul className="list-disc space-y-0.5 pl-4 font-mono text-xs">
+                        {errs.slice(0, 20).map((errText, idx) => (
+                          <li key={idx} className="break-all">
+                            {errText}
+                          </li>
+                        ))}
+                      </ul>
+                      {errs.length > 20 && (
+                        <p className="text-xs text-muted-foreground">
+                          {t('errorsMore', { count: errs.length - 20 })}
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )
+            })}
           </AlertDescription>
         </Alert>
       )}
@@ -399,7 +588,7 @@ function BSImporterPage() {
             <CardTitle className="text-base">{t('liveLogTitle')}</CardTitle>
           </CardHeader>
           <CardContent>
-            <pre className="max-h-64 overflow-y-auto rounded-lg bg-muted p-3 font-mono text-xs text-foreground">
+            <pre className="max-h-64 overflow-x-auto overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 font-mono text-xs text-foreground">
               {logs.join('\n')}
             </pre>
           </CardContent>
@@ -438,7 +627,15 @@ function BSImporterPage() {
                         {j.dryRun ? ` (${t('dryRunTag')})` : ''}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={j.errorCount > 0 ? 'destructive' : 'default'}>
+                        <Badge
+                          variant={
+                            j.status === 'failed' || j.errorCount > 0
+                              ? 'destructive'
+                              : j.status === 'completed'
+                                ? 'success'
+                                : 'secondary'
+                          }
+                        >
                           {statusLabel(t, j.status)}
                         </Badge>
                       </TableCell>

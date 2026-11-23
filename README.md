@@ -23,7 +23,8 @@
 | [`mojang-verification`](./mojang-verification) | `plugin` | `js` (Tier 1) | Microsoft / Xbox Live OAuth 正版认证、同名角色冲突回收退分通知、正版徽章与改名同步，暴露 `importVerifications` 服务 |
 | [`texture-description`](./texture-description) | `plugin` | `js` (Tier 1) | 皮肤与披风描述说明、上传时填写与详情页在线编辑，暴露 `importDescriptions` 服务 |
 | [`theme-atelier`](./theme-atelier) | `theme` | Level ⑤ | 官方五层主题示范包：暖陶配色 Token、分栏登录/标签用户中心、主题设置、自由 CSS 与 `site.footer` / `texture.card` 组件覆盖 |
-| [`bs-importer`](./bs-importer) | `plugin` | `native` (Tier 2 Go) | 按需安装、迁完可卸载的 Blessing Skin 第三方插件扩展表迁移助手（直连 MySQL/PG/SQLite 或 Export Bridge + 隔离 SQL 任务库 + SSE 实时进度流） |
+| [`bs-importer`](./bs-importer) | `plugin` | `native` (Tier 2 Go) | 按需安装、迁完可卸载的 Blessing Skin 扩展数据迁移助手（直连 MySQL/PG/SQLite 或 Export Bridge，支持旧站扩展表并自动发现实现通用 `bsMigrateDescribe`/`bsMigrateImport` 协议的已安装插件 + SSE 实时进度流） |
+| [`mua-union`](./mua-union) | `plugin` | `native` (Tier 2 Go) | 中国高校 Minecraft 联盟（MUA）联合皮肤站认证插件：成员站 `skinDomains` 同步、角色跨站绑定与改名重试队列、联合黑名单及 Union OAuth2 单点登录，实现通用 BS 迁移协议 |
 
 ## 站长如何安装
 
@@ -35,6 +36,7 @@ skinloom plugin market-install mojang-verification
 skinloom plugin market-install texture-description
 skinloom plugin market-install theme-atelier
 skinloom plugin market-install bs-importer --trust-high-risk
+skinloom plugin market-install mua-union --trust-high-risk
 ```
 
 ## 本地开发与验证

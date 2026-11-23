@@ -1,0 +1,224 @@
+{
+  "$schema": "https://skinloom.cn/schema/plugin.v1.json",
+  "id": "mua-union",
+  "kind": "plugin",
+  "runtime": "native",
+  "version": "1.0.0",
+  "name": {
+    "zh-CN": "MUA Union 联合认证",
+    "en": "MUA Union Federation"
+  },
+  "description": {
+    "zh-CN": "官方 Tier 2 原生插件：接入中国高校 Minecraft 联盟（MUA）联合皮肤站认证体系，支持成员皮肤站白名单同步、角色跨站绑定与改名同步、联合黑名单管理及 Union OAuth2 单点登录",
+    "en": "Official Tier 2 native plugin integrating the Minecraft University Alliance (MUA) Union federation protocol: member skinDomains sync, cross-site player binding and lifecycle sync, union blacklist management, and Union OAuth2 SSO"
+  },
+  "authors": ["Entropy-Increase-Team"],
+  "license": "MIT",
+  "homepage": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
+  "apiVersion": 1,
+  "engines": {
+    "skinloom": ">=1.2.0 <2.0.0",
+    "go": ">=1.26.10"
+  },
+  "web": "web/index.js",
+  "native": {
+    "protocolVersion": 1,
+    "executable": "bin/mua-union",
+    "platforms": [
+      "linux/amd64",
+      "linux/arm64",
+      "windows/amd64",
+      "darwin/arm64",
+      "darwin/amd64"
+    ],
+    "httpProxy": false,
+    "database": {
+      "required": true
+    }
+  },
+  "permissions": [
+    "admin.ui",
+    "native.exec",
+    "storage.sql",
+    "routes.public",
+    "yggdrasil.extend",
+    "yggdrasil.key.write",
+    "players.uuid.write",
+    "users.read",
+    "players.read",
+    "cron"
+  ],
+  "routes": {
+    "public": [
+      "/api/union/*"
+    ]
+  },
+  "hooks": {
+    "guard": [
+      "yggdrasil.join"
+    ],
+    "event": [
+      "player.created",
+      "player.renamed",
+      "player.deleted"
+    ]
+  },
+  "optionalDependencies": {
+    "bs-importer": "^1.0.0"
+  },
+  "services": [
+    "bsMigrateDescribe",
+    "bsMigrateImport"
+  ],
+  "menus": [
+    {
+      "area": "user",
+      "path": "/union",
+      "title": {
+        "zh-CN": "MUA 联合认证",
+        "en": "MUA Union"
+      },
+      "icon": "globe",
+      "order": 60
+    },
+    {
+      "area": "explore",
+      "path": "/union",
+      "title": {
+        "zh-CN": "MUA 联合认证",
+        "en": "MUA Union"
+      },
+      "icon": "globe",
+      "order": 60
+    },
+    {
+      "area": "admin",
+      "path": "/console",
+      "title": {
+        "zh-CN": "MUA Union 控制台",
+        "en": "MUA Union Console"
+      },
+      "icon": "shield-check",
+      "order": 70,
+      "role": "admin"
+    },
+    {
+      "area": "admin",
+      "path": "/blacklist",
+      "title": {
+        "zh-CN": "MUA 联合黑名单",
+        "en": "MUA Union Blacklist"
+      },
+      "icon": "shield",
+      "order": 71,
+      "role": "admin"
+    }
+  ],
+  "settings": {
+    "unionApiRoot": {
+      "type": "string",
+      "label": {
+        "zh-CN": "Union API 根地址",
+        "en": "Union API Root URL"
+      },
+      "description": {
+        "zh-CN": "MUA Union 中心节点 API 地址（必须使用 HTTPS，默认 https://skin.mualliance.ltd/api/union）",
+        "en": "Base HTTPS URL of the MUA Union Hub API (default: https://skin.mualliance.ltd/api/union)"
+      },
+      "default": "https://skin.mualliance.ltd/api/union"
+    },
+    "unionMemberKey": {
+      "type": "secret",
+      "label": {
+        "zh-CN": "成员站密钥（Member Key）",
+        "en": "Union Member Key"
+      },
+      "description": {
+        "zh-CN": "向 MUA 联合认证申请成员站后获得的 X-Union-Member-Key 凭据，仅在服务端安全保存，不会暴露给浏览器前端",
+        "en": "X-Union-Member-Key credential issued by MUA Union. Stored securely server-side and never exposed to browsers."
+      },
+      "default": ""
+    },
+    "enableUnionOAuth2": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "启用 MUA Union OAuth2 单点登录",
+        "en": "Enable MUA Union OAuth2 SSO"
+      },
+      "description": {
+        "zh-CN": "开启后向 Union Hub 暴露 /api/union/member/oauth2 与 /api/union/member/oauth2/grant，自动管理 4096 位 RSA 签名密钥对",
+        "en": "Exposes /api/union/member/oauth2 and /api/union/member/oauth2/grant to the Union Hub using an auto-managed 4096-bit RSA signing keypair."
+      },
+      "default": false
+    },
+    "enableLocalBlacklist": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "在进服时启用联合黑名单校验",
+        "en": "Enforce Union Blacklist on Server Join"
+      },
+      "description": {
+        "zh-CN": "开启后将在 yggdrasil.join 阶段查询 Union 联合黑名单，拒绝被封禁邮箱对应的账号加入游戏服务器",
+        "en": "Queries the Union blacklist during yggdrasil.join and blocks blacklisted email accounts from joining game servers."
+      },
+      "default": false
+    },
+    "allowRemoteKeySync": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "允许 Union 远端回调轮换 Yggdrasil 签名私钥（高危）",
+        "en": "Allow Remote Webhook to Rotate Yggdrasil Signing Key (High Risk)"
+      },
+      "description": {
+        "zh-CN": "默认关闭。开启后允许通过 RSA 验签的 /api/union/member/updateprivatekey 回调自动同步 Union 统一签名私钥，所有操作均记入审计日志",
+        "en": "Disabled by default. When enabled, RSA-verified /api/union/member/updateprivatekey webhooks may rotate the site's Yggdrasil signing key (audited)."
+      },
+      "default": false
+    },
+    "allowRemoteUUIDRemap": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "允许 Union 远端回调重映射角色 UUID（高危）",
+        "en": "Allow Remote Webhook to Remap Player UUIDs (High Risk)"
+      },
+      "description": {
+        "zh-CN": "默认关闭。开启后允许通过 RSA 验签的 /api/union/member/remapuuid 回调批量修改本地角色 UUID（跨站绑定/UUID 统一所需），所有操作均记入审计日志",
+        "en": "Disabled by default. When enabled, RSA-verified /api/union/member/remapuuid webhooks may rewrite local player UUIDs for cross-site binding (audited)."
+      },
+      "default": false
+    },
+    "allowRemoteBackendKeyRotate": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "允许 Union 远端回调轮换成员站密钥（高危）",
+        "en": "Allow Remote Webhook to Rotate Member Key (High Risk)"
+      },
+      "description": {
+        "zh-CN": "默认关闭。开启后允许通过 RSA 验签的 /api/union/member/updatebackendkey 回调更新本地缓存的成员站密钥，所有操作均记入审计日志",
+        "en": "Disabled by default. When enabled, RSA-verified /api/union/member/updatebackendkey webhooks may rotate the runtime member key (audited)."
+      },
+      "default": false
+    },
+    "invitationCodesForUnion": {
+      "type": "boolean",
+      "label": {
+        "zh-CN": "向 Union 声明已启用联合邀请码能力",
+        "en": "Advertise Union Invitation Codes Capability"
+      },
+      "description": {
+        "zh-CN": "开启后在 /api/union/member 的 enabledFeatures 中包含 invitationCodesForUnion",
+        "en": "Includes invitationCodesForUnion in /api/union/member enabledFeatures."
+      },
+      "default": false
+    },
+    "unionIntroMarkdown": {
+      "type": "markdown",
+      "label": {
+        "zh-CN": "用户页自定义说明（Markdown，留空则显示 Union 中心节点公告）",
+        "en": "Custom User Page Introduction (Markdown, blank = use Hub description)"
+      },
+      "default": ""
+    }
+  }
+}

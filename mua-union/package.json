@@ -1,0 +1,7 @@
+{
+  "name": "mua-union",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Official SkinLoom MUA Union Federation plugin (Tier 2 Native Go)"
+}

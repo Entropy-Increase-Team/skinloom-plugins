@@ -23,7 +23,8 @@ All official extensions maintained by the SkinLoom team live here and are publis
 | [`mojang-verification`](./mojang-verification) | `plugin` | `js` (Tier 1) | Microsoft / Xbox Live OAuth Minecraft Java ownership verification, name reclamation, verified badge, and `importVerifications` service |
 | [`texture-description`](./texture-description) | `plugin` | `js` (Tier 1) | Texture descriptions editable on upload and detail pages, plus `importDescriptions` service |
 | [`theme-atelier`](./theme-atelier) | `theme` | Level 5 | Reference L1–L5 theme with warm terracotta tokens, layout variants, settings, CSS, and `site.footer` / `texture.card` overrides |
-| [`bs-importer`](./bs-importer) | `plugin` | `native` (Tier 2 Go) | On-demand Blessing Skin third-party extension table importer (direct MySQL/PG/SQLite + Export Bridge, isolated SQL history, SSE progress); safe to uninstall after migration |
+| [`bs-importer`](./bs-importer) | `plugin` | `native` (Tier 2 Go) | On-demand Blessing Skin extension importer (direct MySQL/PG/SQLite + Export Bridge for legacy extension tables and dynamically discovered plugins implementing the generic `bsMigrateDescribe`/`bsMigrateImport` protocol, with SSE live progress); safe to uninstall after migration |
+| [`mua-union`](./mua-union) | `plugin` | `native` (Tier 2 Go) | Minecraft University Alliance (MUA) Union federation protocol: member `skinDomains` sync, cross-site player binding & retry outbox, shared blacklist, Union OAuth2 SSO, and generic BS migration provider |
 
 ## Local Development
 

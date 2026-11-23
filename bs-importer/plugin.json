@@ -3,14 +3,14 @@
   "id": "bs-importer",
   "kind": "plugin",
   "runtime": "native",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "name": {
     "zh-CN": "Blessing Skin 扩展数据迁移助手",
     "en": "Blessing Skin Extension Importer"
   },
   "description": {
-    "zh-CN": "按需安装、迁完可卸载的 Tier 2 原生插件：通过直连 BS 数据库或 Export Bridge 补迁 invitation_codes、mojang_verifications、textures_description 第三方插件数据",
-    "en": "On-demand Tier 2 native plugin to import Blessing Skin third-party plugin extension tables (invitation_codes, mojang_verifications, textures_description) via direct DB or Export Bridge; safe to uninstall after migration"
+    "zh-CN": "按需安装、迁完可卸载的 Tier 2 原生插件：通过直连 BS 数据库或 Export Bridge 补迁旧站扩展表，并自动发现支持通用 bsMigrateDescribe/bsMigrateImport 协议的已安装插件以迁移其旧站 options 与扩展表数据",
+    "en": "On-demand Tier 2 native plugin to import Blessing Skin third-party extension tables and dynamically discovered plugin migrations (options & custom tables via the generic bsMigrateDescribe/bsMigrateImport protocol) via direct DB or Export Bridge; safe to uninstall after migration"
   },
   "authors": ["Entropy-Increase-Team"],
   "license": "MIT",
@@ -18,7 +18,7 @@
   "repository": "https://github.com/Entropy-Increase-Team/skinloom-plugins",
   "apiVersion": 1,
   "engines": {
-    "skinloom": ">=0.1.0 <2.0.0",
+    "skinloom": ">=1.2.0 <2.0.0",
     "go": ">=1.26.10"
   },
   "web": "web/index.js",

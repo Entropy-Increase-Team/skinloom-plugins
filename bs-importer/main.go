@@ -40,7 +40,13 @@ func (s *jobStream) publish(event, msg string) {
 	if s.closed {
 		return
 	}
-	s.history = append(s.history, line)
+	const maxStreamHistory = 500
+	if len(s.history) >= maxStreamHistory {
+		copy(s.history, s.history[1:])
+		s.history[len(s.history)-1] = line
+	} else {
+		s.history = append(s.history, line)
+	}
 	for ch := range s.subs {
 		select {
 		case ch <- line:
@@ -116,16 +122,22 @@ func (p *BSImporterPlugin) streamFor(jobID int64, create bool) *jobStream {
 	}
 	st, ok := p.streams[jobID]
 	if !ok && create {
-		// Evict closed streams once map grows beyond 20 entries to bound memory.
-		if len(p.streams) >= 20 {
+		// Evict only the oldest closed stream once map grows beyond 20 entries so
+		// recently completed jobs stay replayable for connecting SSE clients.
+		for len(p.streams) >= 20 {
+			var oldestID int64 = -1
 			for id, old := range p.streams {
 				old.mu.Lock()
 				isClosed := old.closed
 				old.mu.Unlock()
-				if isClosed {
-					delete(p.streams, id)
+				if isClosed && (oldestID == -1 || id < oldestID) {
+					oldestID = id
 				}
 			}
+			if oldestID == -1 {
+				break
+			}
+			delete(p.streams, oldestID)
 		}
 		st = newJobStream()
 		p.streams[jobID] = st
@@ -193,7 +205,33 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 		return fmt.Errorf("migrate bs-importer db: %w", err)
 	}
 
-	// 1. Test source connectivity and inspect available BS extension tables.
+	// 0. List all available migration providers (built-in legacy tables + dynamically discovered plugins).
+	ctx.HTTP.Get("/admin/providers", func(reqCtx context.Context, _ *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
+		discovered := discoverMigrationProviders(reqCtx, ctx)
+		items := make([]ProviderSummary, 0, len(legacyBuiltInList)+len(discovered))
+		for _, tbl := range legacyBuiltInList {
+			items = append(items, ProviderSummary{
+				ID:           tbl,
+				TargetPlugin: targetPluginForLegacyTable(tbl),
+				Dynamic:      false,
+			})
+		}
+		for _, prov := range discovered {
+			items = append(items, ProviderSummary{
+				ID:             prov.ID,
+				TargetPlugin:   prov.TargetPlugin,
+				Dynamic:        true,
+				Label:          prov.Label,
+				Description:    prov.Description,
+				OptionKeys:     prov.OptionKeys,
+				OptionPrefixes: prov.OptionPrefixes,
+				Tables:         prov.Tables,
+			})
+		}
+		return plugin.JSON(http.StatusOK, map[string]any{"items": items}), nil
+	}, plugin.WithAuth(plugin.AuthSuperadmin))
+
+	// 1. Test source connectivity and inspect available BS extension tables & plugin migration options.
 	ctx.HTTP.Post("/admin/test", func(reqCtx context.Context, req *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
 		var cfg SourceConfig
 		if err := req.DecodeJSON(&cfg); err != nil {
@@ -206,14 +244,15 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 			return nil, plugin.Reject(err.Error())
 		}
 		defer src.Close()
-		res, err := src.Probe(reqCtx)
+		providers := discoverMigrationProviders(reqCtx, ctx)
+		res, err := src.Probe(reqCtx, providers)
 		if err != nil {
 			return nil, plugin.Reject(err.Error())
 		}
 		return plugin.JSON(http.StatusOK, res), nil
 	}, plugin.WithAuth(plugin.AuthSuperadmin))
 
-	// 2. Run extension table import (sync or dry-run) and persist job history in isolated SQL DB.
+	// 2. Run extension table/provider import (sync or dry-run) and persist job history in isolated SQL DB.
 	ctx.HTTP.Post("/admin/run", func(reqCtx context.Context, req *plugin.HTTPRequest) (*plugin.HTTPResponse, error) {
 		var cfg SourceConfig
 		if err := req.DecodeJSON(&cfg); err != nil {
@@ -221,7 +260,8 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 				"请求体 JSON 格式无效："+err.Error(), "Invalid JSON payload: "+err.Error())
 			return nil, plugin.Reject(msg)
 		}
-		tables, err := normalizeRequestedTables(cfg.Tables)
+		providers := discoverMigrationProviders(reqCtx, ctx)
+		tables, provByID, err := normalizeRequestedTargets(cfg.Tables, providers)
 		if err != nil {
 			return nil, plugin.Reject(err.Error())
 		}
@@ -243,6 +283,15 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 
 		stream := p.streamFor(jobID, true)
 		defer stream.close()
+		jobFinished := false
+		defer func() {
+			if !jobFinished {
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				failRep := &ImportReport{DryRun: cfg.DryRun, TotalErrors: 1}
+				_ = p.finishJob(cleanupCtx, jobID, "failed", failRep)
+			}
+		}()
 
 		locale := req.Locale
 		translate := func(key string, params map[string]any, zhFallback, enFallback string) string {
@@ -305,6 +354,10 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 					tblRep = dispatchBatches(reqCtx, ctx, "texture-description", "importDescriptions", rows, cfg.DryRun, emit, translate)
 					tblRep.Table = tbl
 				}
+			default:
+				if prov, ok := provByID[tbl]; ok {
+					tblRep = dispatchGenericProvider(reqCtx, ctx, src, prov, cfg.DryRun, emit, translate)
+				}
 			}
 			report.Tables = append(report.Tables, tblRep)
 			report.TotalRead += tblRep.Read
@@ -320,6 +373,7 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 		if err := p.finishJob(reqCtx, jobID, status, &report); err != nil {
 			return nil, err
 		}
+		jobFinished = true
 		stream.publish("done", translate("logJobFinished", map[string]any{
 			"jobId":    jobID,
 			"imported": report.TotalImported,
@@ -372,6 +426,11 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 
 	// 5. Real-time Server-Sent Events (SSE) progress stream via Tier 2 local stream proxy.
 	ctx.HTTP.StreamFunc(http.MethodGet, "/admin/jobs/:id/stream", func(w http.ResponseWriter, r *http.Request) {
+		viewer := plugin.ProxyViewer(r)
+		if !viewer.Authenticated || viewer.Role != "superadmin" {
+			http.Error(w, "super administrators only", http.StatusForbidden)
+			return
+		}
 		params := plugin.StreamParams(r)
 		locale := plugin.ProxyLocale(r)
 		jobID, err := strconv.ParseInt(params["id"], 10, 64)
@@ -379,10 +438,6 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 			http.Error(w, p.tr(r.Context(), locale, "errInvalidJobId", nil, "无效的任务 ID。", "Invalid job ID."), http.StatusBadRequest)
 			return
 		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		flusher, _ := w.(http.Flusher)
 
 		st := p.streamFor(jobID, false)
 		if st == nil {
@@ -391,6 +446,10 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 				http.Error(w, p.tr(r.Context(), locale, "errJobNotFound", nil, "未找到对应的迁移任务。", "Migration job not found."), http.StatusNotFound)
 				return
 			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			flusher, _ := w.(http.Flusher)
 			statusText := p.localizeStatus(r.Context(), locale, job.Status)
 			msg := p.tr(r.Context(), locale, "logJobStatus", map[string]any{
 				"jobId":    job.ID,
@@ -413,6 +472,11 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 			}
 			return
 		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, _ := w.(http.Flusher)
 
 		hist, ch, closed := st.subscribe()
 		defer st.unsubscribe(ch)
@@ -444,18 +508,36 @@ func (p *BSImporterPlugin) Setup(ctx *plugin.Context) error {
 	return nil
 }
 
+func formatSQLTimestamp(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case time.Time:
+		if x.IsZero() {
+			return ""
+		}
+		return x.UTC().Format(time.RFC3339)
+	case []byte:
+		return normalizeTimestampString(string(x))
+	case string:
+		return normalizeTimestampString(x)
+	default:
+		return normalizeTimestampString(fmt.Sprint(x))
+	}
+}
+
 func (p *BSImporterPlugin) insertJob(ctx context.Context, mode string, dryRun bool, tablesJSON string, actorID int64) (int64, error) {
 	db := p.ctx.DB()
 	if db.Dialect() == "postgres" {
 		var id int64
 		err := db.QueryRow(ctx,
-			`INSERT INTO {{prefix}}jobs (mode, dry_run, tables_json, status, created_by) VALUES (?, ?, ?, 'running', ?) RETURNING id`,
+			`INSERT INTO {{prefix}}jobs (mode, dry_run, tables_json, status, report_json, created_by) VALUES (?, ?, ?, 'running', '{}', ?) RETURNING id`,
 			mode, dryRun, tablesJSON, actorID,
 		).Scan(&id)
 		return id, err
 	}
 	res, err := db.Exec(ctx,
-		`INSERT INTO {{prefix}}jobs (mode, dry_run, tables_json, status, created_by) VALUES (?, ?, ?, 'running', ?)`,
+		`INSERT INTO {{prefix}}jobs (mode, dry_run, tables_json, status, report_json, created_by) VALUES (?, ?, ?, 'running', '{}', ?)`,
 		mode, dryRun, tablesJSON, actorID,
 	)
 	if err != nil {
@@ -466,17 +548,16 @@ func (p *BSImporterPlugin) insertJob(ctx context.Context, mode string, dryRun bo
 
 func (p *BSImporterPlugin) finishJob(ctx context.Context, jobID int64, status string, report *ImportReport) error {
 	reportRaw, _ := json.Marshal(report)
-	now := time.Now().UTC().Format(time.RFC3339)
 	_, err := p.ctx.DB().Exec(ctx,
-		`UPDATE {{prefix}}jobs SET status = ?, imported_count = ?, skipped_count = ?, error_count = ?, report_json = ?, finished_at = ? WHERE id = ?`,
-		status, report.TotalImported, report.TotalSkipped, report.TotalErrors, string(reportRaw), now, jobID,
+		`UPDATE {{prefix}}jobs SET status = ?, imported_count = ?, skipped_count = ?, error_count = ?, report_json = ?, finished_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		status, report.TotalImported, report.TotalSkipped, report.TotalErrors, string(reportRaw), jobID,
 	)
 	return err
 }
 
 func (p *BSImporterPlugin) listJobs(ctx context.Context, limit int) ([]JobSummary, error) {
 	rows, err := p.ctx.DB().Query(ctx,
-		`SELECT id, mode, dry_run, tables_json, status, imported_count, skipped_count, error_count, created_by, created_at, COALESCE(finished_at, '') FROM {{prefix}}jobs ORDER BY id DESC LIMIT ?`,
+		`SELECT id, mode, dry_run, tables_json, status, imported_count, skipped_count, error_count, created_by, created_at, finished_at FROM {{prefix}}jobs ORDER BY id DESC LIMIT ?`,
 		limit,
 	)
 	if err != nil {
@@ -487,12 +568,14 @@ func (p *BSImporterPlugin) listJobs(ctx context.Context, limit int) ([]JobSummar
 	out := []JobSummary{}
 	for rows.Next() {
 		var j JobSummary
-		var dryRaw any
+		var dryRaw, createdRaw, finishedRaw any
 		var tablesJSON string
-		if err := rows.Scan(&j.ID, &j.Mode, &dryRaw, &tablesJSON, &j.Status, &j.ImportedCount, &j.SkippedCount, &j.ErrorCount, &j.CreatedBy, &j.CreatedAt, &j.FinishedAt); err != nil {
+		if err := rows.Scan(&j.ID, &j.Mode, &dryRaw, &tablesJSON, &j.Status, &j.ImportedCount, &j.SkippedCount, &j.ErrorCount, &j.CreatedBy, &createdRaw, &finishedRaw); err != nil {
 			return nil, err
 		}
 		j.DryRun = parseSQLBool(dryRaw)
+		j.CreatedAt = formatSQLTimestamp(createdRaw)
+		j.FinishedAt = formatSQLTimestamp(finishedRaw)
 		_ = json.Unmarshal([]byte(tablesJSON), &j.Tables)
 		out = append(out, j)
 	}
@@ -501,16 +584,18 @@ func (p *BSImporterPlugin) listJobs(ctx context.Context, limit int) ([]JobSummar
 
 func (p *BSImporterPlugin) getJob(ctx context.Context, jobID int64) (*JobSummary, error) {
 	var j JobSummary
-	var dryRaw any
+	var dryRaw, createdRaw, finishedRaw any
 	var tablesJSON, reportJSON string
 	err := p.ctx.DB().QueryRow(ctx,
-		`SELECT id, mode, dry_run, tables_json, status, imported_count, skipped_count, error_count, report_json, created_by, created_at, COALESCE(finished_at, '') FROM {{prefix}}jobs WHERE id = ?`,
+		`SELECT id, mode, dry_run, tables_json, status, imported_count, skipped_count, error_count, report_json, created_by, created_at, finished_at FROM {{prefix}}jobs WHERE id = ?`,
 		jobID,
-	).Scan(&j.ID, &j.Mode, &dryRaw, &tablesJSON, &j.Status, &j.ImportedCount, &j.SkippedCount, &j.ErrorCount, &reportJSON, &j.CreatedBy, &j.CreatedAt, &j.FinishedAt)
+	).Scan(&j.ID, &j.Mode, &dryRaw, &tablesJSON, &j.Status, &j.ImportedCount, &j.SkippedCount, &j.ErrorCount, &reportJSON, &j.CreatedBy, &createdRaw, &finishedRaw)
 	if err != nil {
 		return nil, err
 	}
 	j.DryRun = parseSQLBool(dryRaw)
+	j.CreatedAt = formatSQLTimestamp(createdRaw)
+	j.FinishedAt = formatSQLTimestamp(finishedRaw)
 	_ = json.Unmarshal([]byte(tablesJSON), &j.Tables)
 	if reportJSON != "" {
 		var rep ImportReport

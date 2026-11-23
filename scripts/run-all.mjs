@@ -22,6 +22,7 @@ const PACKAGES = [
   'texture-description',
   'theme-atelier',
   'bs-importer',
+  'mua-union',
 ]
 
 function resolveBin(name, relPath) {

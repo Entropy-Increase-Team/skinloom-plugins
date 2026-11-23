@@ -1,6 +1,6 @@
 {
   "name": "bs-importer",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "Official SkinLoom Blessing Skin Extension Importer plugin (Tier 2 Native Go)"

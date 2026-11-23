@@ -67,3 +67,7 @@ jobs:
             --dir ./bs-importer \
             --native \
             --targets linux/amd64,linux/arm64,windows/amd64,darwin/arm64,darwin/amd64
+          node ../skinloom/web/packages/cli/bin/skinloom-plugin.mjs build \
+            --dir ./mua-union \
+            --native \
+            --targets linux/amd64,linux/arm64,windows/amd64,darwin/arm64,darwin/amd64

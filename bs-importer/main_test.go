@@ -28,10 +28,16 @@ func seedLegacyBSSQLite(t *testing.T, prefix string) string {
 		`CREATE TABLE ` + prefix + `invitation_codes (id INTEGER PRIMARY KEY, code TEXT, generated_at TEXT, used_by INTEGER, used_at TEXT)`,
 		`CREATE TABLE ` + prefix + `mojang_verifications (id INTEGER PRIMARY KEY, user_id INTEGER, uuid TEXT, verified INTEGER, created_at TEXT, updated_at TEXT)`,
 		`CREATE TABLE ` + prefix + `textures_description (id INTEGER PRIMARY KEY, tid INTEGER, description TEXT)`,
+		`CREATE TABLE ` + prefix + `options (id INTEGER PRIMARY KEY, option_name TEXT, option_value TEXT)`,
+		`CREATE TABLE ` + prefix + `custom_ext_items (id INTEGER PRIMARY KEY, item_key TEXT, item_val TEXT)`,
 		`INSERT INTO ` + prefix + `invitation_codes VALUES (1, 'LEGACY-001', '2025-02-01 10:00:00', 0, NULL)`,
 		`INSERT INTO ` + prefix + `invitation_codes VALUES (2, 'LEGACY-002', '2025-02-02 10:00:00', 5, '2025-02-03 12:00:00')`,
 		`INSERT INTO ` + prefix + `mojang_verifications VALUES (1, 5, '069a79f444e94726a5befca90e38aaf5', 1, '2025-02-01 09:00:00', '2025-02-01 09:00:00')`,
 		`INSERT INTO ` + prefix + `textures_description VALUES (1, 42, 'Classic Steve remix')`,
+		`INSERT INTO ` + prefix + `options VALUES (1, 'ext_api_root', 'https://ext.example.com/api')`,
+		`INSERT INTO ` + prefix + `options VALUES (2, 'ext_flag_enabled', 'true')`,
+		`INSERT INTO ` + prefix + `options VALUES (3, 'unrelated_secret', 'must-not-leak')`,
+		`INSERT INTO ` + prefix + `custom_ext_items VALUES (1, 'alpha', '100')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -41,17 +47,41 @@ func seedLegacyBSSQLite(t *testing.T, prefix string) string {
 	return dbPath
 }
 
-func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
+func TestBSImporter_DirectSQLiteDynamicDiscoveryDryRunAndSSE(t *testing.T) {
 	ctx := context.Background()
 	bsPath := seedLegacyBSSQLite(t, "bs_")
 
 	called := map[string]int{}
+	var receivedGeneric GenericMigrationPayload
 	h := plugintest.New(t, &BSImporterPlugin{},
 		plugintest.WithPluginID("bs-importer"),
 		plugintest.WithSQL(),
 		plugintest.WithPermissions("admin.ui", "native.exec", "storage.sql", "http.stream", "users.read", "textures.read"),
 		plugintest.WithHost(func(mh *plugintest.MockHost) {
+			mh.DiscoverHandler = func(_ context.Context, svcName string) ([]string, error) {
+				if svcName == ServiceBSMigrateDescribe {
+					return []string{"custom-ext"}, nil
+				}
+				return nil, nil
+			}
 			mh.ServiceHandler = func(_ context.Context, target, svc string, args []json.RawMessage) (any, error) {
+				if target == "custom-ext" && svc == ServiceBSMigrateDescribe {
+					return map[string]any{
+						"label":          map[string]string{"zh-CN": "自定义扩展配置", "en": "Custom Extension"},
+						"description":    map[string]string{"zh-CN": "示例通用迁移提供方", "en": "Generic migration provider"},
+						"optionKeys":     []string{"ext_api_root"},
+						"optionPrefixes": []string{"ext_flag_"},
+						"tables":         []string{"custom_ext_items"},
+					}, nil
+				}
+				if target == "custom-ext" && svc == ServiceBSMigrateImport {
+					if len(args) > 0 {
+						_ = json.Unmarshal(args[0], &receivedGeneric)
+					}
+					n := len(receivedGeneric.Options) + len(receivedGeneric.Tables["custom_ext_items"])
+					called[target+"."+svc] += n
+					return map[string]any{"imported": n, "skipped": 0, "errors": []string{}}, nil
+				}
 				var items []map[string]any
 				if len(args) > 0 {
 					_ = json.Unmarshal(args[0], &items)
@@ -63,6 +93,12 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 	)
 
 	superadmin := &plugin.Viewer{Authenticated: true, UserID: 1, Role: "superadmin"}
+
+	// 0. GET /admin/providers dynamically includes discovered plugin provider
+	provResp, err := h.DoHTTP(ctx, &plugin.HTTPRequest{Method: http.MethodGet, Path: "/admin/providers", User: superadmin})
+	if err != nil || provResp.Status != http.StatusOK || !strings.Contains(string(provResp.RawBody), "plugin:custom-ext") {
+		t.Fatalf("GET /admin/providers failed: status=%v err=%v body=%s", provResp, err, string(provResp.RawBody))
+	}
 
 	// 1. Reject unsafe table prefix (SQL injection protection)
 	badPrefixBody, _ := json.Marshal(SourceConfig{
@@ -101,7 +137,7 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 	if err := json.Unmarshal(probeResp.RawBody, &probe); err != nil {
 		t.Fatalf("decode probe: %v", err)
 	}
-	if !probe.OK || len(probe.Tables) != 3 || probe.Tables[0].Rows != 2 || probe.Tables[1].Rows != 1 || probe.Tables[2].Rows != 1 {
+	if !probe.OK || len(probe.Tables) != 4 || probe.Tables[0].Rows != 2 || probe.Tables[1].Rows != 1 || probe.Tables[2].Rows != 1 || probe.Tables[3].Rows != 3 {
 		t.Fatalf("unexpected probe result: %+v", probe)
 	}
 
@@ -126,7 +162,7 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 		t.Fatalf("expected zero service writes during dry-run, got %+v", called)
 	}
 
-	// 4. Real run dispatches all 3 tables to target plugins and persists job in isolated SQL DB
+	// 4. Real run dispatches 3 legacy tables + dynamic provider (and NEVER leaks undeclared options!)
 	runBody, _ := json.Marshal(SourceConfig{
 		Mode:        "db",
 		Driver:      "sqlite",
@@ -146,8 +182,17 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 	}
 	if called["invitation-codes.importCodes"] != 2 ||
 		called["mojang-verification.importVerifications"] != 1 ||
-		called["texture-description.importDescriptions"] != 1 {
+		called["texture-description.importDescriptions"] != 1 ||
+		called["custom-ext.bsMigrateImport"] != 3 {
 		t.Fatalf("unexpected dispatched counts: %+v", called)
+	}
+	if _, leaked := receivedGeneric.Options["unrelated_secret"]; leaked {
+		t.Fatal("least-privilege violation: undeclared BS option leaked to plugin provider")
+	}
+	if receivedGeneric.Options["ext_api_root"] != "https://ext.example.com/api" ||
+		receivedGeneric.Options["ext_flag_enabled"] != "true" ||
+		len(receivedGeneric.Tables["custom_ext_items"]) != 1 {
+		t.Fatalf("unexpected generic migration payload: %+v", receivedGeneric)
 	}
 
 	// 5. Stream endpoint replays localized Chinese job events cleanly as SSE
@@ -175,12 +220,12 @@ func TestBSImporter_DirectSQLiteDryRunImportAndSSE(t *testing.T) {
 	if err := json.Unmarshal(jobsResp.RawBody, &listOut); err != nil {
 		t.Fatalf("decode jobs: %v", err)
 	}
-	if len(listOut.Items) != 2 || listOut.Items[0].ImportedCount != 4 {
+	if len(listOut.Items) != 2 || listOut.Items[0].ImportedCount != 7 {
 		t.Fatalf("unexpected jobs list: %+v", listOut.Items)
 	}
 }
 
-func TestBSImporter_HTTPBridgeImport(t *testing.T) {
+func TestBSImporter_HTTPBridgeImportWithDynamicProvider(t *testing.T) {
 	ctx := context.Background()
 	const bridgeToken = "bridge-secret-token"
 
@@ -191,16 +236,21 @@ func TestBSImporter_HTTPBridgeImport(t *testing.T) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
-		case "/manifest":
+		case "/plugin/skinloom-bridge/manifest":
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"bsVersion": "6.0.2",
+				"options": map[string]string{
+					"ext_api_root":     "https://bridge.example.com/api",
+					"ext_flag_enabled": "true",
+					"unrelated_secret": "must-not-leak",
+				},
 				"extensions": map[string]any{
 					"invitation-codes":    map[string]any{"table": "invitation_codes", "rows": 1},
 					"mojang-verification": map[string]any{"table": "mojang_verifications", "rows": 1},
 					"texture-description": map[string]any{"table": "textures_description", "rows": 1},
 				},
 			})
-		case "/rows":
+		case "/plugin/skinloom-bridge/rows":
 			switch r.URL.Query().Get("table") {
 			case TableInvitationCodes:
 				_ = json.NewEncoder(w).Encode(map[string]any{
@@ -231,7 +281,28 @@ func TestBSImporter_HTTPBridgeImport(t *testing.T) {
 		plugintest.WithPluginID("bs-importer"),
 		plugintest.WithSQL(),
 		plugintest.WithHost(func(mh *plugintest.MockHost) {
-			mh.ServiceHandler = func(_ context.Context, _, _ string, args []json.RawMessage) (any, error) {
+			mh.DiscoverHandler = func(_ context.Context, svcName string) ([]string, error) {
+				if svcName == ServiceBSMigrateDescribe {
+					return []string{"custom-ext"}, nil
+				}
+				return nil, nil
+			}
+			mh.ServiceHandler = func(_ context.Context, target, svc string, args []json.RawMessage) (any, error) {
+				if target == "custom-ext" && svc == ServiceBSMigrateDescribe {
+					return map[string]any{
+						"label":      map[string]string{"en": "Custom Extension"},
+						"optionKeys": []string{"ext_api_root", "ext_flag_enabled"},
+					}, nil
+				}
+				if target == "custom-ext" && svc == ServiceBSMigrateImport {
+					var p GenericMigrationPayload
+					_ = json.Unmarshal(args[0], &p)
+					if _, leaked := p.Options["unrelated_secret"]; leaked {
+						t.Error("undeclared option leaked via bridge")
+					}
+					dispatched += len(p.Options)
+					return map[string]any{"imported": len(p.Options), "skipped": 0, "errors": []string{}}, nil
+				}
 				var items []map[string]any
 				_ = json.Unmarshal(args[0], &items)
 				dispatched += len(items)
@@ -241,11 +312,11 @@ func TestBSImporter_HTTPBridgeImport(t *testing.T) {
 	)
 
 	superadmin := &plugin.Viewer{Authenticated: true, UserID: 1, Role: "superadmin"}
+	credJSON, _ := json.Marshal(map[string]string{"url": bridgeSrv.URL, "token": bridgeToken})
 	body, _ := json.Marshal(SourceConfig{
-		Mode:        "bridge",
-		BridgeURL:   bridgeSrv.URL,
-		BridgeToken: bridgeToken,
-		DryRun:      false,
+		Mode:      "bridge",
+		BridgeURL: string(credJSON),
+		DryRun:    false,
 	})
 	resp, err := h.DoHTTP(ctx, &plugin.HTTPRequest{
 		Method: http.MethodPost,
@@ -256,7 +327,134 @@ func TestBSImporter_HTTPBridgeImport(t *testing.T) {
 	if err != nil || resp.Status != http.StatusOK {
 		t.Fatalf("bridge import failed: status=%d err=%v body=%s", resp.Status, err, string(resp.RawBody))
 	}
-	if dispatched != 3 {
-		t.Fatalf("expected 3 bridged rows imported across 3 target plugins, got %d", dispatched)
+	if dispatched != 5 {
+		t.Fatalf("expected 5 bridged items imported across 3 legacy + 1 dynamic provider, got %d", dispatched)
+	}
+}
+
+func TestBSImporter_SecurityRegressions(t *testing.T) {
+	ctx := context.Background()
+
+	// 1. M-7: parseSQLBool defaults nil/unknown/0 to false and handles typed ints/bytes/strings.
+	for _, falsy := range []any{nil, false, int64(0), int32(0), uint64(0), float64(0), []byte("0"), "false", "0", ""} {
+		if parseSQLBool(falsy) {
+			t.Fatalf("M-7 regression: parseSQLBool(%#v) = true, want false", falsy)
+		}
+	}
+	for _, truthy := range []any{true, int64(1), int32(1), uint64(1), float64(1), []byte("1"), "1", "true", "TRUE", "t"} {
+		if !parseSQLBool(truthy) {
+			t.Fatalf("M-7 regression: parseSQLBool(%#v) = false, want true", truthy)
+		}
+	}
+
+	// 2. M-4: Malformed Bridge JSON bundle must NOT echo the secret token in error messages.
+	_, err := openBridgeSource(SourceConfig{
+		Mode:      "bridge",
+		BridgeURL: `{"url":"https://skin.example.com","token":"SUPER-SECRET-TOKEN-999"`,
+	})
+	if err == nil {
+		t.Fatal("expected error for malformed JSON bundle")
+	}
+	if strings.Contains(err.Error(), "SUPER-SECRET-TOKEN-999") {
+		t.Fatalf("M-4 regression: error echoed secret token: %v", err)
+	}
+	if scrubbed := scrubDSN("mysql", "root:TOPSECRET_PW@tcp(db.local:3306)/bs"); strings.Contains(scrubbed, "TOPSECRET_PW") {
+		t.Fatalf("M-4 regression: scrubDSN leaked password: %q", scrubbed)
+	}
+
+	// 3. C-1 & LIKE ESCAPE: Malicious provider requesting core tables, broad prefixes, or sensitive option keys
+	// must be blocked, and underscore in prefix "ext_" must NOT match "extX_secret".
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "bs_sec.sqlite")
+	srcDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer srcDB.Close()
+	for _, q := range []string{
+		`CREATE TABLE users (uid INTEGER PRIMARY KEY, email TEXT, password TEXT);`,
+		`INSERT INTO users (uid, email, password) VALUES (1, 'admin@example.com', '$2y$10$hash');`,
+		`CREATE TABLE oauth_clients (id INTEGER PRIMARY KEY, secret TEXT);`,
+		`INSERT INTO oauth_clients (id, secret) VALUES (1, 'client-secret');`,
+		`CREATE TABLE options (option_name TEXT PRIMARY KEY, option_value TEXT);`,
+		`INSERT INTO options (option_name, option_value) VALUES ('ygg_private_key', '-----BEGIN PRIVATE KEY-----');`,
+		`INSERT INTO options (option_name, option_value) VALUES ('oauth_client_secret', 'top-secret');`,
+		`INSERT INTO options (option_name, option_value) VALUES ('ext_allowed_opt', 'ok');`,
+		`INSERT INTO options (option_name, option_value) VALUES ('extX_wildcard_leak', 'must-not-match');`,
+		`CREATE TABLE custom_plugin_data (id INTEGER PRIMARY KEY, val TEXT);`,
+		`INSERT INTO custom_plugin_data (id, val) VALUES (1, 'safe-val');`,
+	} {
+		if _, err := srcDB.Exec(q); err != nil {
+			t.Fatalf("seed %s: %v", q, err)
+		}
+	}
+
+	var received GenericMigrationPayload
+	h := plugintest.New(t, &BSImporterPlugin{},
+		plugintest.WithPluginID("bs-importer"),
+		plugintest.WithSQL(),
+		plugintest.WithHost(func(mh *plugintest.MockHost) {
+			mh.DiscoverHandler = func(_ context.Context, svcName string) ([]string, error) {
+				if svcName == ServiceBSMigrateDescribe {
+					return []string{"greedy-plugin"}, nil
+				}
+				return nil, nil
+			}
+			mh.ServiceHandler = func(_ context.Context, target, svc string, args []json.RawMessage) (any, error) {
+				if target == "greedy-plugin" && svc == ServiceBSMigrateDescribe {
+					return map[string]any{
+						"label":          map[string]string{"en": "Greedy"},
+						"optionKeys":     []string{"ygg_private_key", "oauth_client_secret", "ext_allowed_opt"},
+						"optionPrefixes": []string{"a", "u_", "ext_"},
+						"tables":         []string{"users", "oauth_clients", "options", "custom_plugin_data"},
+					}, nil
+				}
+				if target == "greedy-plugin" && svc == ServiceBSMigrateImport {
+					_ = json.Unmarshal(args[0], &received)
+					return map[string]any{"imported": len(received.Options), "skipped": 0, "errors": []string{}}, nil
+				}
+				return map[string]any{"imported": 0, "skipped": 0, "errors": []string{}}, nil
+			}
+		}),
+	)
+
+	superadmin := &plugin.Viewer{Authenticated: true, UserID: 1, Role: "superadmin"}
+	body, _ := json.Marshal(SourceConfig{
+		Mode:   "db",
+		Driver: "sqlite",
+		DSN:    dbPath,
+		DryRun: false,
+	})
+	resp, err := h.DoHTTP(ctx, &plugin.HTTPRequest{
+		Method: http.MethodPost,
+		Path:   "/admin/run",
+		Body:   body,
+		User:   superadmin,
+	})
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if resp.Status != http.StatusOK {
+		t.Fatalf("run failed: status=%d body=%s", resp.Status, string(resp.RawBody))
+	}
+	if _, leaked := received.Options["ygg_private_key"]; leaked {
+		t.Fatal("C-1 regression: ygg_private_key leaked to dynamic provider")
+	}
+	if _, leaked := received.Options["oauth_client_secret"]; leaked {
+		t.Fatal("C-1 regression: oauth_client_secret leaked to dynamic provider")
+	}
+	if _, leaked := received.Options["extX_wildcard_leak"]; leaked {
+		t.Fatal("LIKE ESCAPE regression: unescaped '_' in prefix ext_ matched extX_wildcard_leak")
+	}
+	if received.Options["ext_allowed_opt"] != "ok" {
+		t.Fatalf("expected allowed option ext_allowed_opt=ok, got %+v", received.Options)
+	}
+	for _, forbiddenTable := range []string{"users", "oauth_clients", "options"} {
+		if _, leaked := received.Tables[forbiddenTable]; leaked {
+			t.Fatalf("C-1 regression: core sensitive table %q leaked to dynamic provider", forbiddenTable)
+		}
+	}
+	if len(received.Tables["custom_plugin_data"]) != 1 {
+		t.Fatalf("expected non-core custom_plugin_data allowed, got %+v", received.Tables)
 	}
 }
