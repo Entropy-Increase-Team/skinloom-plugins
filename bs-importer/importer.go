@@ -26,11 +26,11 @@ const (
 	ServiceBSMigrateImport   = "bsMigrateImport"
 	dynamicProviderPrefix    = "plugin:"
 
-	maxBridgeRespBytes   = 16 << 20 // 16 MiB per page
-	serviceBatchSize     = 200
-	maxGenericTableRows  = 50000
-	maxProviderKeys      = 100
-	maxProviderTables    = 10
+	maxBridgeRespBytes  = 16 << 20 // 16 MiB per page
+	serviceBatchSize    = 200
+	maxGenericTableRows = 50000
+	maxProviderKeys     = 100
+	maxProviderTables   = 10
 )
 
 var (
