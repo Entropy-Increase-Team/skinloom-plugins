@@ -5,14 +5,9 @@ go 1.26.10
 toolchain go1.27.4
 
 require (
-	github.com/Entropy-Increase-Team/skinloom v1.1.0
+	github.com/Entropy-Increase-Team/skinloom v1.1.3
 	modernc.org/sqlite v1.61.0
 )
-
-// Local development override while skinloom v1.2.0 (containing generic
-// Services.Discover / bidirectional opt-in service protocol) is pending release.
-// Remove after tagging & bumping to v1.2.0.
-replace github.com/Entropy-Increase-Team/skinloom => ../../skinloom
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

@@ -4,7 +4,7 @@ go 1.26.10
 
 toolchain go1.27.4
 
-require github.com/Entropy-Increase-Team/skinloom v1.1.0
+require github.com/Entropy-Increase-Team/skinloom v1.1.3
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
@@ -41,8 +41,3 @@ require (
 	modernc.org/memory v1.12.1 // indirect
 	modernc.org/sqlite v1.61.0 // indirect
 )
-
-// Local development override while skinloom v1.2.0 (containing apiVersion: 1
-// extensions for Yggdrasil key rotation, player UUID remap, and public webhook
-// route options) is pending release. Remove after tagging & bumping to v1.2.0.
-replace github.com/Entropy-Increase-Team/skinloom => ../../skinloom
